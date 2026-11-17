@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EVBots Stand — лаунчер стенда на WPF. Только .NET BCL и WPF, без NuGet.
+       x86: правило проекта «весь код под x86» (bf3.exe 32-битный). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EVBots.Gui</RootNamespace>
+    <AssemblyName>EVBots Stand</AssemblyName>
+    <PlatformTarget>x86</PlatformTarget>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EVBots.Core\EVBots.Core.csproj" />
+  </ItemGroup>
+
+</Project>

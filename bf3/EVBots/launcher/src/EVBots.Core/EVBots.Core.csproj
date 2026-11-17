@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ядро лаунчера: пути, планы запуска, HTTP-клиент бэкенда, LAN-объявления.
+       Без WPF и без NuGet: только .NET BCL. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EVBots.Core</RootNamespace>
+    <AssemblyName>EVBots.Core</AssemblyName>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+
+</Project>

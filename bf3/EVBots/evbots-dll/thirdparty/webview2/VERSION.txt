@@ -1,0 +1,1 @@
+Microsoft.Web.WebView2 1.0.4258.31 (nuget.org, 25.10.2026): include + x86 WebView2LoaderStatic.lib

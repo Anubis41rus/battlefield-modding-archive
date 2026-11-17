@@ -1,0 +1,55 @@
+# Build outputs / intermediates
+**/bin/
+**/obj/
+**/objdump/
+**/objlua/
+**/objzstd/
+**/build/
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.log
+
+# Local/stand runtime artifacts
+stand/logs/
+stand/activation/*.dll
+stand/activation/*.pdb
+stand/ebx_index.bin
+stand/profiles/
+stand/profiles.fresh/
+stand/settings/
+stand/reports/
+stand/run/*.log
+stand/run/*.out
+stand/run/*.err
+
+# IDE/editor
+.vs/
+.vscode/
+*.user
+*.suo
+*.swp
+*.tmp
+
+# Large reference/external materials (separate repos or data dumps)
+Venice-EBX/
+Venice-EBX-JSON/
+VU-Docs/
+openBlase/
+New-Blaze-Emulator/
+SDKFrostbite/
+webui-probe/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Build/release bundles and deployed binaries
+backend/build*/
+stand/activation/
+stand/backend/
+stand/license/
+launcher/src/EVBotsSetup/kit.zip
+*.dlf

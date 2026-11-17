@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Лаунчер для друга: кнопки вместо ручных netsh и скриптов.
+       Портативный: пути ищет от места exe (папка EVBots рядом с Battlefield 3 и Battlefield-Portable).
+       Только .NET BCL и WPF, без NuGet. x86, как клиент Battlefield 3. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EVBots.Launcher</RootNamespace>
+    <AssemblyName>EV Launcher</AssemblyName>
+    <Version>0.1.0</Version>
+    <ApplicationIcon>..\..\assets\battle-royale.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\assets\battle-royale.ico" Link="evbots.ico" />
+    <Resource Include="..\..\assets\launcher-background.png" Link="Artwork\launcher-background.png" />
+    <Resource Include="..\..\assets\battle-royale-icon.png" Link="Artwork\battle-royale-icon.png" />
+    <Resource Include="bf3-logo.png" />
+    <Content Include="GameAssetCache.NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Издание Royale не содержит установщик перевода других модов. -->
+  <ItemGroup>
+    <Compile Remove="ModPatch.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EVBots.Core\EVBots.Core.csproj" />
+    <Compile Include="..\Shared\RoyaleInstanceConfig.cs" Link="RoyaleInstanceConfig.cs" />
+  </ItemGroup>
+
+</Project>

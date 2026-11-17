@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Установщик EV Bots: обычное окно (WinForms), без консоли.
+       .NET Framework 4.8 есть в любой Windows 10/11 — ничего доустанавливать не нужно.
+       Комплект (папка EVBots) вшит ресурсом kit.zip. Лежит рядом с Battlefield 3 и Battlefield-Portable. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>EVBots-Setup</AssemblyName>
+    <RootNamespace>EVBots.Setup</RootNamespace>
+    <ApplicationIcon>..\..\assets\battle-royale.ico</ApplicationIcon>
+    <PlatformTarget>x86</PlatformTarget>
+    <Version>1.0.269</Version>
+    <KitZipPath Condition="'$(KitZipPath)' == ''">$(MSBuildProjectDirectory)\kit.zip</KitZipPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Compile Include="..\Shared\RoyaleInstanceConfig.cs" Link="RoyaleInstanceConfig.cs" />
+    <EmbeddedResource Include="$(KitZipPath)" LogicalName="kit.zip" />
+    <EmbeddedResource Include="bf3-logo.png" LogicalName="bf3-logo.png" />
+    <EmbeddedResource Include="..\..\assets\battle-royale-wordmark.png" LogicalName="battle-royale-wordmark.png" />
+    <EmbeddedResource Include="..\..\assets\launcher-background.png" LogicalName="launcher-background.png" />
+    <EmbeddedResource Include="..\..\assets\battle-royale-icon.png" LogicalName="battle-royale-icon.png" />
+  </ItemGroup>
+
+
+</Project>

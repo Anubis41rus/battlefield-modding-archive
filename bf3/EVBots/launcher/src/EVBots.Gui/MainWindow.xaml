@@ -1,0 +1,365 @@
+<Window x:Class="EVBots.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="EVBots Stand" Width="1200" Height="790" MinWidth="980" MinHeight="640"
+        WindowStyle="None" AllowsTransparency="False" ResizeMode="CanResize"
+        Background="{DynamicResource WindowBgBrush}"
+        Foreground="{DynamicResource TextBrush}"
+        FontFamily="{DynamicResource UiFont}" FontSize="13"
+        WindowStartupLocation="CenterScreen">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="44" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" />
+    </WindowChrome.WindowChrome>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="232" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Заголовок: он же зона перетаскивания окна -->
+        <DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="18,6,8,2">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button x:Name="MinBtn" Content="–" Style="{StaticResource WinBtn}" Click="MinBtn_Click" WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button x:Name="MaxBtn" Content="□" Style="{StaticResource WinBtn}" Click="MaxBtn_Click" WindowChrome.IsHitTestVisibleInChrome="True" />
+                <Button x:Name="CloseBtn" Content="×" Style="{StaticResource WinBtn}" Click="CloseBtn_Click" WindowChrome.IsHitTestVisibleInChrome="True" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="EVBOTS" FontSize="20" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                <TextBlock Text="   LAN-стенд Battlefield 3 · без интернета" Style="{StaticResource Muted}" VerticalAlignment="Bottom" Margin="4,0,0,4" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Навигация -->
+        <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource Card}" Margin="14,8,8,10" Padding="12">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Mono}" Margin="4,8,4,0"
+                           Text="Порты: игра 25300 · HTTP 8080 · Blaze 10041 · редиректор 42127 · RCON 47900 · LAN-объявления UDP 47990" />
+                <StackPanel>
+                    <Button x:Name="NavServer" Tag="0" Content="Сервер" Style="{StaticResource NavBtn}" Click="Nav_Click" />
+                    <Button x:Name="NavPlay" Tag="1" Content="Играть" Style="{StaticResource NavBtn}" Click="Nav_Click" />
+                    <Button x:Name="NavAccounts" Tag="2" Content="Аккаунты" Style="{StaticResource NavBtn}" Click="Nav_Click" />
+                    <Button x:Name="NavServers" Tag="3" Content="Серверы" Style="{StaticResource NavBtn}" Click="Nav_Click" />
+                    <Button x:Name="NavSettings" Tag="4" Content="Настройки" Style="{StaticResource NavBtn}" Click="Nav_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Вкладки -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="8,8,14,10">
+
+            <!-- Сервер -->
+            <ScrollViewer x:Name="PanelServer" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,8,0">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Запуск сервера" Style="{StaticResource H2}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="Имя сервера" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="ServerNameBox" />
+                                    <TextBlock Text="Карта (MapID)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="MapBox" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                                    <TextBlock Text="Режим (GamemodeID)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="ModeBox" />
+                                    <TextBlock Text="Макс. игроков (1–64)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="MaxPlayersBox" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Боты (InitNumberOfBots)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="BotsBox" />
+                                    <TextBlock x:Name="ConfigBotsText" Style="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Muted}" FontSize="12" Margin="0,10,0,0"
+                                       Text="Карты: MP_001, MP_003, MP_007, MP_011, MP_012, MP_013, MP_017, MP_018. Режимы: ConquestSmall0, ConquestLarge0, TeamDeathMatch0, SquadDeathMatch0, CaptureTheFlag0. Бот-число 8 даёт около 15 ботов (balanced_teams)." />
+                            <CheckBox x:Name="OpenLanCheck" Content="Открыть для LAN: сервер виден и доступен с других ПК" Margin="0,12,0,0" />
+                            <CheckBox x:Name="BridgeCheck" Content="Мост Lua → движок (EVBOTS_BRIDGE, как run_bare -Bridge 1)" />
+                            <CheckBox x:Name="ManagerCheck" Content="Менеджер игроков (EVBOTS_SPM_MGR, как run_bare -Mgr 1)" />
+                            <CheckBox x:Name="TestsCheck" Content="Тесты движка (EVBOTS_TESTS, как start_run.ps1)" />
+                            <WrapPanel Margin="0,14,0,0">
+                                <Button x:Name="StartServerBtn" Content="Запустить сервер" Style="{StaticResource BtnPrimary}" Click="StartServer_Click" />
+                                <Button x:Name="StopServerBtn" Content="Остановить сервер" Style="{StaticResource BtnGhost}" Click="StopServer_Click" />
+                                <Button x:Name="StopAllBtn" Content="Остановить сервер и бэкенд" Style="{StaticResource BtnDanger}" Click="StopAll_Click" />
+                                <Button x:Name="StartBackendBtn" Content="Только бэкенд" Style="{StaticResource BtnGhost}" Click="StartBackend_Click" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Состояние" Style="{StaticResource H2}" />
+                            <TextBlock x:Name="BackendStateText" Margin="0,0,0,6" />
+                            <TextBlock x:Name="ServerStateText" Margin="0,0,0,6" />
+                            <TextBlock x:Name="ClientStateText" Margin="0,0,0,6" />
+                            <TextBlock x:Name="LanStateText" Style="{StaticResource Muted}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Логи" Style="{StaticResource H2}" />
+                            <WrapPanel>
+                                <Button x:Name="LogSrc0" Tag="0" Content="Лаунчер" Style="{StaticResource BtnGhost}" Click="LogSource_Click" />
+                                <Button x:Name="LogSrc1" Tag="1" Content="Бэкенд" Style="{StaticResource BtnGhost}" Click="LogSource_Click" />
+                                <Button x:Name="LogSrc2" Tag="2" Content="Сервер (загрузчик)" Style="{StaticResource BtnGhost}" Click="LogSource_Click" />
+                                <Button x:Name="LogSrc3" Tag="3" Content="EVBots.log (Lua)" Style="{StaticResource BtnGhost}" Click="LogSource_Click" />
+                                <Button x:Name="LogSrc4" Tag="4" Content="Лог игры (RuntimeLog)" Style="{StaticResource BtnGhost}" Click="LogSource_Click" />
+                                <Button x:Name="OpenLogsBtn" Content="Папка логов" Style="{StaticResource BtnGhost}" Click="OpenLogs_Click" />
+                            </WrapPanel>
+                            <TextBlock x:Name="LogHeaderText" Style="{StaticResource Mono}" Margin="0,4,0,6" />
+                            <TextBox x:Name="LogBox" Height="330" IsReadOnly="True" AcceptsReturn="True"
+                                     FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                     TextWrapping="NoWrap" Background="#33000000" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Играть -->
+            <ScrollViewer x:Name="PanelPlay" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Margin="0,0,8,0">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Вход в игру" Style="{StaticResource H2}" />
+                            <TextBlock Text="Выбранный сервер" Style="{StaticResource FieldLabel}" />
+                            <TextBlock x:Name="TargetText" Text="не выбран: откройте вкладку «Серверы»" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="Логин" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="JoinLoginBox" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Пароль (для сервера в LAN; на этом ПК не нужен)" Style="{StaticResource FieldLabel}" />
+                                    <PasswordBox x:Name="JoinPasswordBox" />
+                                </StackPanel>
+                            </Grid>
+                            <CheckBox x:Name="WindowedCheck" Content="Оконный режим 1280×720 (как join_client.ps1)" Margin="0,12,0,0" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button x:Name="JoinBtn" Content="Подключиться" Style="{StaticResource BtnPrimary}" Click="Join_Click" />
+                            </WrapPanel>
+                            <TextBlock x:Name="JoinStatusText" Style="{StaticResource Muted}" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Как входит клиент" Style="{StaticResource H2}" />
+                            <TextBlock Style="{StaticResource Muted}"
+                                       Text="Сервер на этом ПК: personaref берётся из аккаунтов этого ПК, пароль не нужен. Клиент идёт на 127.0.0.1:25300 с gameid из бэкенда. Если игра bf3 уже запущена, второй клиент не стартует." />
+                            <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0"
+                                       Text="Сервер в LAN: введите логин и пароль. Личность регистрируется на бэкенде хоста (POST /accounts/ensure), клиент идёт на LAN-IP хоста (BF3ACT_DNSREDIR_IP). Хост должен открыть порты во вкладке «Настройки»." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Аккаунты -->
+            <ScrollViewer x:Name="PanelAccounts" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Margin="0,0,8,0">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Аккаунты этого ПК" Style="{StaticResource H2}" />
+                            <ListView x:Name="AccountsList" Height="300" Background="Transparent" BorderThickness="0"
+                                      ItemContainerStyle="{StaticResource LvItem}"
+                                      SelectionChanged="AccountsList_SelectionChanged">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="Логин" Width="180" DisplayMemberBinding="{Binding Login}" />
+                                        <GridViewColumn Header="personaref" Width="140" DisplayMemberBinding="{Binding Personaref}" />
+                                        <GridViewColumn Header="Солдат" Width="260" DisplayMemberBinding="{Binding Soldier}" />
+                                        <GridViewColumn Header="Солдат, шт." Width="120" DisplayMemberBinding="{Binding Soldiers}" />
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button x:Name="RefreshAccountsBtn" Content="Обновить" Style="{StaticResource BtnGhost}" Click="RefreshAccounts_Click" />
+                                <Button x:Name="DeleteAccountBtn" Content="Удалить выбранный" Style="{StaticResource BtnDanger}" Click="DeleteAccount_Click" />
+                                <CheckBox x:Name="KeepSoldierCheck" Content="Сохранить солдата и прогресс" Margin="6,8,0,0" />
+                            </WrapPanel>
+                            <TextBlock x:Name="AccountsStatusText" Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Новый аккаунт" Style="{StaticResource H2}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                    <TextBlock Text="Логин (3–32, латиница, цифры, _ - .)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="NewLoginBox" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                                    <TextBlock Text="Пароль (от 4 символов)" Style="{StaticResource FieldLabel}" />
+                                    <PasswordBox x:Name="NewPasswordBox" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Имя солдата (необязательно)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="NewNameBox" />
+                                </StackPanel>
+                            </Grid>
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button x:Name="CreateAccountBtn" Content="Создать" Style="{StaticResource BtnPrimary}" Click="CreateAccount_Click" />
+                            </WrapPanel>
+                            <TextBlock Style="{StaticResource Muted}" FontSize="12" Margin="0,4,0,0"
+                                       Text="personaref назначает бэкенд: следующий свободный id из profiles\next-id.json, с 234471774 (диапазон EA). Если логин уже есть, пароль должен совпасть." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Серверы -->
+            <ScrollViewer x:Name="PanelServers" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Margin="0,0,8,0">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Локальные серверы (этот ПК)" Style="{StaticResource H2}" />
+                            <ListBox x:Name="LocalList" Background="Transparent" BorderThickness="0" MinHeight="90"
+                                     ItemContainerStyle="{StaticResource RowItem}" SelectionChanged="LocalList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14" />
+                                                <TextBlock Text="{Binding Details}" Style="{StaticResource Muted}" />
+                                                <TextBlock Text="{Binding Address}" Style="{StaticResource Mono}" />
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="#2234D399" CornerRadius="8" Padding="8,3" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{StaticResource OkBrush}" />
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock x:Name="LocalEmptyText" Style="{StaticResource Muted}" Margin="0,6,0,0"
+                                       Text="Серверов на этом ПК нет. Запустите сервер на вкладке «Сервер»." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Сеть LAN: серверы других ПК" Style="{StaticResource H2}" />
+                            <ListBox x:Name="NetworkList" Background="Transparent" BorderThickness="0" MinHeight="90"
+                                     ItemContainerStyle="{StaticResource RowItem}" SelectionChanged="NetworkList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14" />
+                                                <TextBlock Text="{Binding Details}" Style="{StaticResource Muted}" />
+                                                <TextBlock Text="{Binding Address}" Style="{StaticResource Mono}" />
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Background="#225EEAD4" CornerRadius="8" Padding="8,3" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Badge}" FontSize="11" Foreground="{StaticResource AccentBrush}" />
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock x:Name="NetStatusText" Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Настройки -->
+            <ScrollViewer x:Name="PanelSettings" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel Margin="0,0,8,0">
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="LAN" Style="{StaticResource H2}" />
+                            <TextBlock Text="LAN-IP этого ПК (пусто = определить автоматически)" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="LanIpBox" Width="320" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="LanHintText" Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button x:Name="LanCheckBtn" Content="Проверить HTTP на этом адресе" Style="{StaticResource BtnGhost}" Click="LanCheck_Click" />
+                                <Button x:Name="LanPortsBtn" Content="Открыть порты для LAN (UAC)" Style="{StaticResource BtnGhost}" Click="LanPorts_Click" />
+                            </WrapPanel>
+                            <TextBlock Style="{StaticResource Muted}" FontSize="12"
+                                       Text="Открыть порты нужно хосту один раз: URL-ACL для HTTP на LAN-адрес (без него гости не смогут войти) и правила брандмауэра для TCP 8080, 10041, 42127, 25300 и UDP 47990, 17554 (частная сеть). Команды видны до запуска." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Файлы стенда" Style="{StaticResource H2}" />
+                            <StackPanel x:Name="PathsPanel" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Прочее" Style="{StaticResource H2}" />
+                            <CheckBox x:Name="AcrylicCheck" Content="Эффект Acrylic (размытие фона окна, Windows 10 1803+)" />
+                            <TextBlock x:Name="GlassText" Style="{StaticResource Muted}" Margin="0,2,0,8" />
+                            <CheckBox x:Name="DiscoveryCheck" Content="Объявлять и искать серверы в LAN (UDP 47990)" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button x:Name="SaveSettingsBtn" Content="Сохранить" Style="{StaticResource BtnPrimary}" Click="SaveSettings_Click" />
+                                <Button x:Name="OpenLauncherDirBtn" Content="Папка лаунчера" Style="{StaticResource BtnGhost}" Click="OpenLauncherDir_Click" />
+                            </WrapPanel>
+                            <TextBlock x:Name="SettingsStatusText" Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Строка состояния -->
+        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#18FFFFFF" Padding="16,7">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Style="{StaticResource Pill}">
+                    <TextBlock x:Name="BackendPill" Text="Бэкенд: …" />
+                </Border>
+                <Border Grid.Column="1" Style="{StaticResource Pill}">
+                    <TextBlock x:Name="ServerPill" Text="Сервер: …" />
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource Pill}">
+                    <TextBlock x:Name="ClientPill" Text="Игра: …" />
+                </Border>
+                <Border Grid.Column="3" Style="{StaticResource Pill}">
+                    <TextBlock x:Name="LanPill" Text="LAN: …" />
+                </Border>
+                <TextBlock x:Name="NotifyText" Grid.Column="4" Foreground="{StaticResource TextDimBrush}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

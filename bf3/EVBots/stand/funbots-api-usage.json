@@ -1,0 +1,870 @@
+{
+ "calls": {
+  "Events:Subscribe": [
+   "Client/UIClient.lua",
+   "Client/UIViews.lua",
+   "Client/__init__.lua",
+   "Server/PermissionManager.lua",
+   "Server/UIServer.lua",
+   "Server/__init__.lua",
+   "Shared/__init__.lua"
+  ],
+  "NetEvents:Subscribe": [
+   "Client/ClientNodeEditor.lua",
+   "Client/UIClient.lua",
+   "Client/__init__.lua",
+   "Server/NodeCollection.lua",
+   "Server/NodeEditor.lua",
+   "Server/UIPathMenu.lua",
+   "Server/UIServer.lua",
+   "Server/__init__.lua"
+  ],
+  "Hooks:Install": [
+   "Client/__init__.lua",
+   "Server/__init__.lua",
+   "Shared/__init__.lua"
+  ],
+  "PlayerManager:GetLocalPlayer": [
+   "Client/ClientBotManager.lua",
+   "Client/ClientNodeEditor.lua",
+   "Client/ClientSpawnPointHelper.lua",
+   "Client/__init__.lua"
+  ],
+  "PlayerManager:GetPlayers": [
+   "Client/ClientBotManager.lua",
+   "Client/__init__.lua",
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua"
+  ],
+  "RaycastManager:Raycast": [
+   "Client/ClientBotManager.lua",
+   "Client/ClientNodeEditor.lua",
+   "Client/__init__.lua"
+  ],
+  "SharedUtils:GetTime": [
+   "Client/__init__.lua"
+  ],
+  "PlayerManager:GetPlayersByTeam": [
+   "Client/ClientBotManager.lua",
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua"
+  ],
+  "NetEvents:SendLocal": [
+   "Client/ClientBotManager.lua",
+   "Client/ClientNodeEditor.lua",
+   "Client/ClientSpawnPointHelper.lua",
+   "Client/ConsoleCommands.lua"
+  ],
+  "RaycastManager:CollisionRaycast": [
+   "Client/ClientBotManager.lua",
+   "Server/Bot/BotMovement.lua",
+   "Server/BotManager.lua"
+  ],
+  "PlayerManager:GetPlayerById": [
+   "Client/ClientBotManager.lua",
+   "Server/AirTargets.lua",
+   "Server/Bot/Bot.lua",
+   "Server/Bot/BotActions.lua",
+   "Server/BotStates/StateInVehicleJetControl.lua",
+   "Server/BotStates/StateInVehicleStationaryAAControl.lua",
+   "Shared/Utilities.lua"
+  ],
+  "NetEvents:Send": [
+   "Client/UIClient.lua"
+  ],
+  "ResourceManager:RegisterInstanceLoadHandler": [
+   "Server/__init__.lua"
+  ],
+  "ServerUtils:GetCustomGameModeName": [
+   "Server/__init__.lua"
+  ],
+  "ResourceManager:GetSettings": [
+   "Server/__init__.lua"
+  ],
+  "NetEvents:SendToLocal": [
+   "Server/Commands/Chat.lua",
+   "Server/Commands/Console.lua",
+   "Server/NodeEditor.lua",
+   "Server/UIServer.lua",
+   "Server/__init__.lua"
+  ],
+  "ResourceManager:SearchForDataContainer": [
+   "Server/BotSpawner.lua",
+   "Server/__init__.lua",
+   "Shared/EbxEditUtils.lua",
+   "Shared/WeaponList.lua"
+  ],
+  "EntityManager:CreateEntitiesFromBlueprint": [
+   "Server/__init__.lua"
+  ],
+  "SharedUtils:GetLevelName": [
+   "Server/__init__.lua",
+   "Shared/__init__.lua"
+  ],
+  "SharedUtils:GetCurrentGameMode": [
+   "Server/BotSpawner.lua",
+   "Server/__init__.lua"
+  ],
+  "TicketManager:GetCurrentRound": [
+   "Server/__init__.lua"
+  ],
+  "TicketManager:GetRoundCount": [
+   "Server/__init__.lua"
+  ],
+  "EntityManager:GetIterator": [
+   "Server/Bot/BotActions.lua",
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua",
+   "Server/__init__.lua"
+  ],
+  "MathUtils:FNVHash": [
+   "Server/GameDirector.lua",
+   "Server/__init__.lua"
+  ],
+  "MathUtils:GetRandomInt": [
+   "Server/AirTargets.lua",
+   "Server/Bot/BotMovement.lua",
+   "Server/Bot/BotSetters.lua",
+   "Server/Bot/VehicleMovement.lua",
+   "Server/BotCreator.lua",
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua",
+   "Server/PathSwitcher.lua",
+   "Shared/Utilities.lua",
+   "Shared/WeaponList.lua"
+  ],
+  "PlayerManager:DeletePlayer": [
+   "Server/Bot/Bot.lua",
+   "Server/BotManager.lua"
+  ],
+  "Events:Dispatch": [
+   "Server/Bot/BotActions.lua",
+   "Server/Bot/VehicleMovement.lua",
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua",
+   "Server/NodeCollection.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "MathUtils:GetRandom": [
+   "Server/Bot/BotAiming.lua",
+   "Server/Bot/BotGetters.lua",
+   "Server/Bot/BotMovement.lua",
+   "Server/Bot/VehicleAiming.lua",
+   "Server/BotManager.lua",
+   "Server/BotStates/StateAttacking.lua",
+   "Server/BotStates/StateInVehicleAttacking.lua"
+  ],
+  "SharedUtils:GetTickrate": [
+   "Server/BotManager.lua"
+  ],
+  "PlayerManager:GetPlayerCount": [
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua"
+  ],
+  "PlayerManager:CreatePlayer": [
+   "Server/BotManager.lua"
+  ],
+  "PlayerManager:GetPlayerByOnlineId": [
+   "Server/BotManager.lua",
+   "Server/NodeEditor.lua",
+   "Shared/Utilities.lua"
+  ],
+  "NetEvents:SendUnreliableToLocal": [
+   "Server/BotManager.lua"
+  ],
+  "ChatManager:SendMessage": [
+   "Server/BotManager.lua",
+   "Server/BotSpawner.lua",
+   "Server/Commands/Chat.lua",
+   "Server/NodeEditor.lua",
+   "Server/UIPathMenu.lua",
+   "Server/UIServer.lua"
+  ],
+  "PlayerManager:GetPlayerByName": [
+   "Server/BotSpawner.lua",
+   "Server/PermissionManager.lua",
+   "Shared/Utilities.lua"
+  ],
+  "TicketManager:GetTicketCount": [
+   "Server/BotSpawner.lua"
+  ],
+  "TeamSquadManager:GetSquadPlayerCount": [
+   "Server/BotSpawner.lua"
+  ],
+  "ResourceManager:SearchForInstanceByGuid": [
+   "Server/BotSpawner.lua",
+   "Shared/EbxEditUtils.lua",
+   "Shared/__init__.lua"
+  ],
+  "PlayerManager:GetPlayersBySquad": [
+   "Server/BotSpawner.lua",
+   "Server/GameDirector.lua"
+  ],
+  "ChatManager:Yell": [
+   "Server/Commands/Chat.lua",
+   "Server/NodeCollection.lua",
+   "Server/UIServer.lua"
+  ],
+  "Vec3:Distance": [
+   "Server/NodeCollection.lua"
+  ],
+  "RaycastManager:DetailedRaycast": [
+   "Server/NodeEditor.lua"
+  ],
+  "NetEvents:BroadcastLocal": [
+   "Server/SettingsManager.lua",
+   "Server/UIServer.lua"
+  ],
+  "NetEvents:SendTo": [
+   "Server/UIPathMenu.lua",
+   "Server/UIServer.lua"
+  ],
+  "Net:GetHTTPAsync": [
+   "Server/UpdateCheck.lua"
+  ],
+  "ResourceManager:MountSuperBundle": [
+   "Shared/__init__.lua"
+  ],
+  "ResourceManager:AddRegistry": [
+   "Shared/__init__.lua"
+  ],
+  "ResourceManager:FindDatabasePartition": [
+   "Shared/EbxEditUtils.lua"
+  ],
+  "SharedUtils:IsClientModule": [
+   "Shared/EbxEditUtils.lua"
+  ],
+  "SharedUtils:IsServerModule": [
+   "Shared/EbxEditUtils.lua"
+  ],
+  "SharedUtils:GetTimeNS": [
+   "Shared/Utils/Profiler.lua"
+  ]
+ },
+ "raw_names": {
+  "Extension:Loaded": [
+   "Client/__init__.lua",
+   "Server/PermissionManager.lua",
+   "Server/__init__.lua"
+  ],
+  "Extension:Unloading": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "Engine:Message": [
+   "Client/__init__.lua"
+  ],
+  "UpdateManager:Update": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "Level:Destroy": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "Level:Loaded": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "Player:Deleted": [
+   "Client/__init__.lua"
+  ],
+  "Client:UpdateInput": [
+   "Client/__init__.lua"
+  ],
+  "Engine:Update": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "Player:Respawn": [
+   "Client/__init__.lua",
+   "Server/__init__.lua"
+  ],
+  "UI:DrawHud": [
+   "Client/__init__.lua"
+  ],
+  "Partition:Loaded": [
+   "Client/__init__.lua"
+  ],
+  "ConsoleCommands:RegisterCommands": [
+   "Client/__init__.lua",
+   "Server/Commands/Console.lua"
+  ],
+  "ConsoleCommands:PrintResponse": [
+   "Client/__init__.lua",
+   "Server/Commands/Console.lua"
+  ],
+  "ClientNodeEditor:RegisterEvents": [
+   "Client/__init__.lua",
+   "Server/Commands/Console.lua"
+  ],
+  "UI:PushScreen": [
+   "Client/__init__.lua"
+  ],
+  "Input:PreUpdate": [
+   "Client/__init__.lua"
+  ],
+  "Client:RequestEnterVehicle": [
+   "Client/ClientBotManager.lua",
+   "Server/__init__.lua"
+  ],
+  "Client:RequestChangeVehicleSeat": [
+   "Client/ClientBotManager.lua",
+   "Server/__init__.lua"
+  ],
+  "Client:RequestSettings": [
+   "Client/ClientBotManager.lua",
+   "Server/__init__.lua"
+  ],
+  "Botmanager:RaycastResults": [
+   "Client/ClientBotManager.lua",
+   "Server/__init__.lua"
+  ],
+  "ClientNodeEditor:PrintLog": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "ClientNodeEditor:RevieveNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:UpdateNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:RemoveNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:AddNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:UpdateSelection": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:ClearCustomTrace": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:ClearTrace": [
+   "Client/ClientNodeEditor.lua",
+   "Server/Commands/Chat.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:ClearAll": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "ClientNodeEditor:SelectNewNode": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:Deselect": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:Select": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:RemoveNode": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:UnlinkNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:MergeNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SelectPrevious": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:ClearSelection": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SpawnBot": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:UpdatePos": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddNode": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:LinkNodes": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:TeleportToEdge": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SplitNode": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SelectNext": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SelectBetween": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SetInputNode": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddMcom": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddVehicle": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:ExitVehicle": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:CustomAction": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddVehiclePath": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SetVehicleSpawn": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddObjective": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:RemoveObjective": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:RemoveAllObjectives": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:SetLoopMode": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "NodeEditor:SetSpawnPath": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "NodeEditor:RemoveData": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:JumpDetected": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "WaypointEditor:ChangeMode": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "NodeEditor:RequestData": [
+   "Client/ClientNodeEditor.lua",
+   "Server/NodeEditor.lua"
+  ],
+  "SpawnPointHelper:TeleportTo": [
+   "Client/ClientSpawnPointHelper.lua",
+   "Server/__init__.lua"
+  ],
+  "ConsoleCommands:SetConfig": [
+   "Client/ConsoleCommands.lua",
+   "Server/__init__.lua"
+  ],
+  "ConsoleCommands:SaveAll": [
+   "Client/ConsoleCommands.lua",
+   "Server/__init__.lua"
+  ],
+  "ConsoleCommands:Restore": [
+   "Client/ConsoleCommands.lua",
+   "Server/__init__.lua"
+  ],
+  "ConsoleCommands:SpawnGrenade": [
+   "Client/ConsoleCommands.lua",
+   "Server/__init__.lua"
+  ],
+  "ConsoleCommands:DestroyObstaclesTest": [
+   "Client/ConsoleCommands.lua",
+   "Server/__init__.lua"
+  ],
+  "PathMenu:Request": [
+   "Client/UIClient.lua",
+   "Server/UIPathMenu.lua"
+  ],
+  "UIClient:UI_Toggle": [
+   "Client/UIClient.lua"
+  ],
+  "PathMenu:Hide": [
+   "Client/UIClient.lua",
+   "Server/UIPathMenu.lua"
+  ],
+  "PathMenu:Unhide": [
+   "Client/UIClient.lua",
+   "Server/UIPathMenu.lua"
+  ],
+  "Engine:Init": [
+   "Server/__init__.lua"
+  ],
+  "Server:RoundOver": [
+   "Server/__init__.lua"
+  ],
+  "Server:RoundReset": [
+   "Server/__init__.lua"
+  ],
+  "Player:Authenticated": [
+   "Server/__init__.lua"
+  ],
+  "Player:Joining": [
+   "Server/__init__.lua"
+  ],
+  "Player:TeamChange": [
+   "Server/__init__.lua"
+  ],
+  "Player:Killed": [
+   "Server/__init__.lua"
+  ],
+  "Player:Chat": [
+   "Server/__init__.lua"
+  ],
+  "Player:Left": [
+   "Server/__init__.lua"
+  ],
+  "Player:Destroyed": [
+   "Server/__init__.lua"
+  ],
+  "Soldier:HealthAction": [
+   "Server/__init__.lua"
+  ],
+  "CapturePoint:Lost": [
+   "Server/__init__.lua"
+  ],
+  "CapturePoint:Captured": [
+   "Server/__init__.lua"
+  ],
+  "Player:EnteredCapturePoint": [
+   "Server/__init__.lua"
+  ],
+  "Player:ExitedCapturePoint": [
+   "Server/__init__.lua"
+  ],
+  "Vehicle:SpawnDone": [
+   "Server/__init__.lua"
+  ],
+  "Vehicle:Unspawn": [
+   "Server/__init__.lua"
+  ],
+  "Vehicle:Damage": [
+   "Server/__init__.lua"
+  ],
+  "Vehicle:Enter": [
+   "Server/__init__.lua"
+  ],
+  "Vehicle:Exit": [
+   "Server/__init__.lua"
+  ],
+  "ScoringSystem:StatEvent": [
+   "Server/__init__.lua"
+  ],
+  "CombatArea:PlayerDeserting": [
+   "Server/__init__.lua"
+  ],
+  "CombatArea:PlayerReturning": [
+   "Server/__init__.lua"
+  ],
+  "LifeCounter:BaseDestroyed": [
+   "Server/__init__.lua"
+  ],
+  "Soldier:Damage": [
+   "Server/__init__.lua"
+  ],
+  "EntityFactory:Create": [
+   "Server/__init__.lua"
+  ],
+  "BulletEntity:Collision": [
+   "Server/__init__.lua"
+  ],
+  "NodeCollection:FinishedLoading": [
+   "Server/NodeCollection.lua",
+   "Server/__init__.lua"
+  ],
+  "Bot:AbortWait": [
+   "Server/Bot/BotActions.lua",
+   "Server/GameDirector.lua",
+   "Server/__init__.lua"
+  ],
+  "Bot:ExitVehicle": [
+   "Server/Bot/VehicleMovement.lua",
+   "Server/__init__.lua"
+  ],
+  "Botmanager:Update": [
+   "Server/BotManager.lua"
+  ],
+  "BotSpawner:Spawn": [
+   "Server/BotSpawner.lua"
+  ],
+  "BotSpawner:AfterSpawn": [
+   "Server/BotSpawner.lua"
+  ],
+  "Bot:SoldierEntity": [
+   "Server/BotSpawner.lua"
+  ],
+  "BotSpawner:SpawnPart2": [
+   "Server/BotSpawner.lua"
+  ],
+  "BotSpawner:SpawnPart3": [
+   "Server/BotSpawner.lua"
+  ],
+  "ClientNodeEditor:StartTrace": [
+   "Server/Commands/Chat.lua"
+  ],
+  "ClientNodeEditor:EndTrace": [
+   "Server/Commands/Chat.lua"
+  ],
+  "NodeCollection:Clear": [
+   "Server/Commands/Chat.lua",
+   "Server/NodeCollection.lua",
+   "Server/UIServer.lua"
+  ],
+  "ClientNodeEditor:SaveTrace": [
+   "Server/Commands/Chat.lua"
+  ],
+  "GameDirector:Update1": [
+   "Server/GameDirector.lua"
+  ],
+  "GameDirector:Update2": [
+   "Server/GameDirector.lua"
+  ],
+  "GameDirector:Update3": [
+   "Server/GameDirector.lua"
+  ],
+  "NodeCollection:Create": [
+   "Server/NodeCollection.lua"
+  ],
+  "NodeEditor:SetPathLoops": [
+   "Server/NodeEditor.lua"
+  ],
+  "NodeEditor:AddSpawnPath": [
+   "Server/NodeEditor.lua"
+  ],
+  "PathMenu:Open": [
+   "Server/UIPathMenu.lua"
+  ],
+  "PathMenu:Close": [
+   "Server/UIPathMenu.lua"
+  ],
+  "Level:LoadResources": [
+   "Shared/__init__.lua"
+  ],
+  "Level:RegisterEntityResources": [
+   "Shared/__init__.lua"
+  ],
+  "ResourceManager:LoadBundles": [
+   "Shared/__init__.lua"
+  ]
+ },
+ "events": {
+  "WriteClientSettings": [
+   "Client/__init__.lua"
+  ],
+  "CheckBotBotAttack": [
+   "Client/__init__.lua"
+  ],
+  "UI_Settings": [
+   "Client/UIClient.lua",
+   "Client/__init__.lua"
+  ],
+  "UI_ClientNodeEditor_TraceData": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Select": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Remove": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Unlink": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Merge": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_SelectPrevious": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_ClearSelections": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Move": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Add": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Link": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_Split": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_SelectNext": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_SelectBetween": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "UI_CommoRose_Action_SetInput": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Select": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Remove": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Unlink": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Merge": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SelectPrevious": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "ClearSelection": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Move": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Add": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Link": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Split": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SelectNext": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SelectBetween": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SetInput": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "Enabled": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddObjective": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddMcom": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddVehicle": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "ExitVehicle": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "CustomAction": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddVehiclePath": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddVehicleSpawn": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "RemoveObjective": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "RemoveAllObjectives": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SetPathLoops": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "AddSpawnPath": [
+   "Client/ClientNodeEditor.lua"
+  ],
+  "SpawnGrenade": [
+   "Client/ConsoleCommands.lua"
+  ],
+  "DestroyObstaclesTest": [
+   "Client/ConsoleCommands.lua"
+  ],
+  "UI_Toggle": [
+   "Client/UIClient.lua"
+  ],
+  "BotEditor": [
+   "Client/UIClient.lua",
+   "Server/UIServer.lua"
+  ],
+  "UI_Show_Toolbar": [
+   "Client/UIClient.lua"
+  ],
+  "UI_CommoRose": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Save_Settings": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Change_Language": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Waypoints_Editor": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Waypoints_Disable": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Trace": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Trace_Index": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Trace_Waypoints": [
+   "Client/UIClient.lua"
+  ],
+  "UI_Close": [
+   "Client/UIViews.lua"
+  ],
+  "UI_Request_Save_Settings": [
+   "Server/NodeEditor.lua",
+   "Server/UIServer.lua"
+  ],
+  "UI_Request_Open": [
+   "Server/UIServer.lua"
+  ],
+  "UI_Request_CommoRose_Show": [
+   "Server/UIServer.lua"
+  ]
+ },
+ "lua_files": 114
+}

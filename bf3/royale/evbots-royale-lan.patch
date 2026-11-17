@@ -1,0 +1,2745 @@
+diff --git a/ext/Client/GunshipCamera.lua b/ext/Client/GunshipCamera.lua
+index 21f2104..7625691 100644
+--- a/ext/Client/GunshipCamera.lua
++++ b/ext/Client/GunshipCamera.lua
+@@ -5,6 +5,14 @@ GunshipCamera = class "GunshipCamera"
+ local m_Hud = require "UI/Hud"
+ local m_Logger = Logger("GunshipCamera", false)
+ 
++local CAMERA_RESPONSE_TIME = 0.035
++local MAX_AIM_STEP = 0.05
++local AIM_SPEED = 120.0
++
++local function IsFiniteNumber(p_Value)
++	return type(p_Value) == "number" and p_Value > -math.huge and p_Value < math.huge
++end
++
+ function GunshipCamera:__init()
+ 	self.m_Distance = 50.0
+ 	self.m_Height = 5.5
+@@ -23,7 +31,7 @@ function GunshipCamera:__init()
+ 
+ 	self.m_Data = nil
+ 	self.m_Entity = nil
+-	self.m_Active = false
++	self.m_Enabled = false
+ 	self.m_LookAtPos = nil
+ end
+ 
+@@ -39,33 +47,33 @@ end
+ ---Called from GunshipClient
+ ---UpdatePass.UpdatePass_PostFrame
+ ---@param p_DeltaTime number
+----@param p_GunshipEntity SpatialEntity|nil
+-function GunshipCamera:OnUpdatePassPostFrame(p_DeltaTime, p_GunshipEntity)
+-	if not self.m_Active then
++---@param p_GunshipTransform LinearTransform
++function GunshipCamera:OnUpdatePassPostFrame(p_DeltaTime, p_GunshipTransform)
++	if not self.m_Enabled or p_GunshipTransform == nil or PlayerManager:GetLocalPlayer() == nil then
+ 		return
+ 	end
+ 
+-	if p_GunshipEntity == nil then
+-		return
++	local s_Yaw = math.atan(p_GunshipTransform.forward.z, p_GunshipTransform.forward.x) + self.m_LockedCameraYaw - math.pi
++	local s_Pitch = self.m_LockedCameraPitch + math.pi / 2
++	local s_PlanePosition = p_GunshipTransform.trans
++	local s_LookAtPos = Vec3(s_PlanePosition.x, s_PlanePosition.y + self.m_Height, s_PlanePosition.z)
++	local s_PositionDelta = self.m_LookAtPos ~= nil and s_LookAtPos - self.m_LookAtPos or nil
++
++	-- The route is updated on server ticks. Smooth small changes between
++	-- rendered frames, and snap after a spawn or a jump across the orbit.
++	if s_PositionDelta ~= nil and s_PositionDelta:Dot(s_PositionDelta) < self.m_Distance * self.m_Distance then
++		local s_Dt = IsFiniteNumber(p_DeltaTime) and math.max(p_DeltaTime, 0) or 0
++		local s_Weight = 1.0 - math.exp(-s_Dt / CAMERA_RESPONSE_TIME)
++		local s_YawDelta = (s_Yaw - self.m_CameraYaw + math.pi) % self.m_TwoPi - math.pi
++		s_Yaw = self.m_CameraYaw + s_YawDelta * s_Weight
++		s_Pitch = self.m_CameraPitch + (s_Pitch - self.m_CameraPitch) * s_Weight
++		s_LookAtPos = self.m_LookAtPos + s_PositionDelta * s_Weight
+ 	end
+-
+-	local s_Player = PlayerManager:GetLocalPlayer()
+-
+-	if s_Player == nil then
+-		return
+-	end
+-
+-	local s_Yaw = math.atan(p_GunshipEntity.transform.forward.z, p_GunshipEntity.transform.forward.x) + self.m_LockedCameraYaw
+-	local s_Pitch = self.m_LockedCameraPitch
+-
+-	s_Yaw = s_Yaw - math.pi
+-	s_Pitch = s_Pitch + math.pi / 2
+-
++	self.m_CameraYaw = s_Yaw
++	self.m_CameraPitch = s_Pitch
++	self.m_LookAtPos = s_LookAtPos
+ 	m_Hud:OnGunshipPlayerYaw(s_Yaw)
+ 
+-	self.m_LookAtPos = p_GunshipEntity.transform.trans:Clone()
+-	self.m_LookAtPos.y = self.m_LookAtPos.y + self.m_Height
+-
+ 	---@type number
+ 	local s_Cosfi = math.cos(s_Yaw)
+ 	local s_Sinfi = math.sin(s_Yaw)
+@@ -82,9 +90,16 @@ function GunshipCamera:OnUpdatePassPostFrame(p_DeltaTime, p_GunshipEntity)
+ 	local s_Cz = self.m_LookAtPos.z + (self.m_Distance * s_Sintheta * s_Sinfi)
+ 	local s_CameraLocation = Vec3(s_Cx, s_Cy, s_Cz)
+ 
+-	self.m_Data.transform:LookAtTransform(s_CameraLocation, self.m_LookAtPos)
+-	self.m_Data.transform.left = self.m_Data.transform.left * -1
+-	self.m_Data.transform.forward = self.m_Data.transform.forward * -1
++	local s_Transform = LinearTransform()
++	s_Transform:LookAtTransform(s_CameraLocation, self.m_LookAtPos)
++	s_Transform.left = s_Transform.left * -1
++	s_Transform.forward = s_Transform.forward * -1
++	self:CreateCameraData()
++	self.m_Data.transform = s_Transform
++	if self.m_Entity == nil then
++		self:CreateCamera()
++		self:TakeControl()
++	end
+ end
+ 
+ -- =============================================
+@@ -96,38 +111,21 @@ end
+ ---@param p_Cache ConceptCache
+ ---@param p_DeltaTime number
+ function GunshipCamera:OnInputPreUpdate(p_HookCtx, p_Cache, p_DeltaTime)
+-	if not self.m_Active then
++	if self.m_Entity == nil or PlayerManager:GetLocalPlayer() == nil or
++		not IsFiniteNumber(p_DeltaTime) or p_DeltaTime <= 0 then
+ 		return
+ 	end
+ 
+-	local s_Player = PlayerManager:GetLocalPlayer()
+-
+-	if s_Player == nil then
+-		return
++	-- Limit how far a stalled frame can move the camera with its latest input.
++	local s_Weight = AIM_SPEED * math.min(p_DeltaTime, MAX_AIM_STEP)
++	local s_Yaw = p_Cache[InputConceptIdentifiers.ConceptYaw]
++	local s_Pitch = p_Cache[InputConceptIdentifiers.ConceptPitch]
++	if IsFiniteNumber(s_Yaw) and IsFiniteNumber(s_Yaw * s_Weight) then
++		self.m_LockedCameraYaw = (self.m_LockedCameraYaw + s_Yaw * s_Weight) % self.m_TwoPi
+ 	end
+-
+-	---@type number
+-	local s_RotateYaw = p_Cache[InputConceptIdentifiers.ConceptYaw] * 240.0 * p_DeltaTime
+-	---@type number
+-	local s_RotatePitch = p_Cache[InputConceptIdentifiers.ConceptPitch] * 240.0 * p_DeltaTime
+-
+-	self.m_LockedCameraYaw = self.m_LockedCameraYaw + s_RotateYaw
+-	self.m_LockedCameraPitch = self.m_LockedCameraPitch + s_RotatePitch
+-
+-	if self.m_LockedCameraPitch > self.m_MaxPitch then
+-		self.m_LockedCameraPitch = self.m_MaxPitch
+-	end
+-
+-	if self.m_LockedCameraPitch < self.m_MinPitch then
+-		self.m_LockedCameraPitch = self.m_MinPitch
+-	end
+-
+-	while self.m_LockedCameraYaw < 0 do
+-		self.m_LockedCameraYaw = self.m_TwoPi + self.m_LockedCameraYaw
+-	end
+-
+-	while self.m_LockedCameraYaw > self.m_TwoPi do
+-		self.m_LockedCameraYaw = self.m_LockedCameraYaw - self.m_TwoPi
++	if IsFiniteNumber(s_Pitch) and IsFiniteNumber(s_Pitch * s_Weight) then
++		self.m_LockedCameraPitch = math.max(self.m_MinPitch, math.min(self.m_MaxPitch,
++			self.m_LockedCameraPitch + s_Pitch * s_Weight))
+ 	end
+ end
+ 
+@@ -167,6 +165,7 @@ function GunshipCamera:CreateCamera()
+ 		s_Entity:Init(Realm.Realm_Client, true)
+ 		self.m_Entity = s_Entity
+ 	else
++		self.m_Enabled = false
+ 		m_Logger:Write("Creating CameraEntity failed. The player is probably still loading the game. Activating Spectator.")
+ 		SpectatorManager:SetSpectating(true)
+ 	end
+@@ -174,13 +173,14 @@ end
+ 
+ ---Destroys the CameraEntity (Entity)
+ function GunshipCamera:DestroyCamera()
+-	if self.m_Entity == nil then
+-		return
++	if self.m_Entity ~= nil then
++		self.m_Entity:Destroy()
++		self.m_Entity = nil
+ 	end
+ 
+-	self.m_Entity:Destroy()
+-	self.m_Entity = nil
+ 	self.m_LookAtPos = nil
++	self.m_CameraYaw = nil
++	self.m_CameraPitch = nil
+ 	self.m_LockedCameraYaw = 0.0
+ 	self.m_LockedCameraPitch = -0.9
+ end
+@@ -192,15 +192,12 @@ end
+ ---Fires event "TakeControl" at the entity
+ function GunshipCamera:TakeControl()
+ 	if self.m_Entity ~= nil then
+-		self.m_Active = true
+ 		self.m_Entity:FireEvent("TakeControl")
+ 	end
+ end
+ 
+ ---Fires event "ReleaseControl" at the entity
+ function GunshipCamera:ReleaseControl()
+-	self.m_Active = false
+-
+ 	if self.m_Entity ~= nil then
+ 		self.m_Entity:FireEvent("ReleaseControl")
+ 	end
+@@ -212,12 +209,12 @@ end
+ 
+ ---Enables the Camera (Create & TakeControl)
+ function GunshipCamera:Enable()
+-	self:CreateCamera()
+-	self:TakeControl()
++	self.m_Enabled = true
+ end
+ 
+ ---Disables the Camera (ReleaseControl & Destroy)
+ function GunshipCamera:Disable()
++	self.m_Enabled = false
+ 	self:ReleaseControl()
+ 	self:DestroyCamera()
+ end
+@@ -225,7 +222,7 @@ end
+ ---Returns the current instance transform or nil
+ ---@return LinearTransform|nil
+ function GunshipCamera:GetTransform()
+-	return self.m_Data ~= nil and self.m_Data.transform
++	return self.m_Entity ~= nil and self.m_Data.transform or nil
+ end
+ 
+ return GunshipCamera()
+diff --git a/ext/Client/GunshipClient.lua b/ext/Client/GunshipClient.lua
+index f8e5731..bf4a90d 100644
+--- a/ext/Client/GunshipClient.lua
++++ b/ext/Client/GunshipClient.lua
+@@ -6,11 +6,13 @@ local m_Hud = require "UI/Hud"
+ local m_Logger = Logger("GunshipClient", false)
+ ---@type GunshipCamera
+ local m_GunshipCamera = require "GunshipCamera"
++local GUNSHIP_GUID = Guid("81ED68CF-5FDE-4C24-A6B4-C38FB8D4A778")
+ 
+ function GunshipClient:__init()
+ 	-- TODO: switch to enum type
+ 	---@type string|nil
+ 	self.m_Type = nil
++	self.m_HasJumped = false
+ 	self.m_IsInFreeFall = false
+ 	self.m_CumulatedTime = 0.0
+ end
+@@ -21,6 +23,9 @@ end
+ 
+ ---VEXT Shared Level:Destroy Event
+ function GunshipClient:OnLevelDestroy()
++	self.m_Type = nil
++	self.m_GunshipEntity = nil
++	self.m_HasJumped = false
+ 	self.m_IsInFreeFall = false
+ 	m_GunshipCamera:OnLevelDestroy()
+ end
+@@ -34,11 +39,12 @@ function GunshipClient:OnUpdatePassPostFrame(p_DeltaTime)
+ 	end
+ 
+ 	local s_GunshipEntity = self:GetGunshipEntity()
++	local s_GunshipTransform = s_GunshipEntity ~= nil and s_GunshipEntity.transform or nil
+ 
+-	if s_GunshipEntity ~= nil then
+-		m_Hud:OnGunshipPosition(s_GunshipEntity.transform)
+-		m_Hud:OnGunshipYaw(s_GunshipEntity.transform)
+-		m_GunshipCamera:OnUpdatePassPostFrame(p_DeltaTime, s_GunshipEntity)
++	if s_GunshipTransform ~= nil then
++		m_Hud:OnGunshipPosition(s_GunshipTransform)
++		m_Hud:OnGunshipYaw(s_GunshipTransform)
++		m_GunshipCamera:OnUpdatePassPostFrame(p_DeltaTime, s_GunshipTransform)
+ 	else
+ 		m_Hud:OnGunshipDisable()
+ 	end
+@@ -79,7 +85,7 @@ end
+ 
+ ---VEXT Client Client:UpdateInput Event
+ function GunshipClient:OnClientUpdateInput()
+-	if self.m_Type ~= "Paradrop" then
++	if self.m_Type ~= "Paradrop" or self.m_HasJumped then
+ 		return
+ 	end
+ 
+@@ -87,14 +93,12 @@ function GunshipClient:OnClientUpdateInput()
+ 		return
+ 	end
+ 
+-	if self.m_IsInFreeFall then
+-		return
+-	end
+-
+ 	if InputManager:WentKeyDown(InputDeviceKeys.IDK_E) then
+-		NetEvents:SendLocal(GunshipEvents.JumpOut, m_GunshipCamera:GetTransform())
+-		self.m_IsInFreeFall = true
+-		m_GunshipCamera:Disable()
++		local s_CameraTransform = m_GunshipCamera:GetTransform()
++		if s_CameraTransform == nil then
++			return
++		end
++		self:JumpOut(s_CameraTransform)
+ 	end
+ end
+ 
+@@ -107,12 +111,15 @@ end
+ ---@param p_Type string
+ function GunshipClient:OnGunshipEnable(p_Type)
+ 	self.m_Type = p_Type
++	self.m_GunshipEntity = nil
++	self.m_HasJumped = false
+ 	m_GunshipCamera:Enable()
+ end
+ 
+ ---Custom Client GunshipEvents.Disable NetEvent
+ function GunshipClient:OnGunshipDisable()
+ 	self.m_Type = nil
++	self.m_GunshipEntity = nil
+ 	m_Hud:OnGunshipPosition(nil)
+ 	m_Hud:OnGunshipYaw(nil)
+ 	m_GunshipCamera:Disable()
+@@ -120,6 +127,7 @@ end
+ 
+ ---Custom Client GunshipEvents.JumpOut NetEvent
+ function GunshipClient:OnJumpOutOfGunship()
++	self.m_HasJumped = true
+ 	m_GunshipCamera:Disable()
+ end
+ 
+@@ -129,9 +137,8 @@ function GunshipClient:OnForceJumpOufOfGunship()
+ 		return
+ 	end
+ 
+-	if self.m_Type == "Paradrop" then
+-		NetEvents:SendLocal(GunshipEvents.JumpOut, m_GunshipCamera:GetTransform())
+-		self.m_IsInFreeFall = true
++	if self.m_Type == "Paradrop" and not self.m_HasJumped then
++		self:JumpOut(m_GunshipCamera:GetTransform())
+ 	end
+ end
+ 
+@@ -165,15 +172,30 @@ end
+ -- Functions
+ -- =============================================
+ 
++function GunshipClient:JumpOut(p_Transform)
++	self.m_HasJumped = true
++	self.m_IsInFreeFall = true
++	NetEvents:SendLocal(GunshipEvents.JumpOut, p_Transform)
++	m_GunshipCamera:Disable()
++end
++
+ ---Returns the VehicleEntity (SpatialEntity) or nil
+ ---@return SpatialEntity|nil
+ function GunshipClient:GetGunshipEntity()
++	-- The native wrapper holds a weak generation. Resolve a new iterator
++	-- only when the aircraft is missing or its current lifetime ends.
++	if self.m_GunshipEntity ~= nil and self.m_GunshipEntity.isValid then
++		return self.m_GunshipEntity
++	end
++	self.m_GunshipEntity = nil
+ 	local s_VehicleEntityIterator = EntityManager:GetIterator("ClientVehicleEntity")
+ 	local s_VehicleEntity = s_VehicleEntityIterator:Next()
+ 
+ 	while s_VehicleEntity ~= nil do
+-		if s_VehicleEntity.data.partition.name == "vehicles/xp5/c130/c130" then
+-			return SpatialEntity(s_VehicleEntity)
++		local s_Data = s_VehicleEntity.data
++		if s_Data ~= nil and s_Data.instanceGuid == GUNSHIP_GUID then
++			self.m_GunshipEntity = SpatialEntity(s_VehicleEntity)
++			return self.m_GunshipEntity
+ 		end
+ 
+ 		s_VehicleEntity = s_VehicleEntityIterator:Next()
+diff --git a/ext/Client/PhaseManagerClient.lua b/ext/Client/PhaseManagerClient.lua
+index cc723af..99a5439 100644
+--- a/ext/Client/PhaseManagerClient.lua
++++ b/ext/Client/PhaseManagerClient.lua
+@@ -135,6 +135,9 @@ end
+ ---@return Vec3|nil
+ function PhaseManagerClient:GetActivePlayerPosition()
+ 	local s_Player = PlayerManager:GetLocalPlayer()
++	if s_Player == nil then
++		return nil
++	end
+ 
+ 	if SpectatorManager:GetSpectating() then
+ 		s_Player = SpectatorManager:GetSpectatedPlayer()
+diff --git a/ext/Client/RenderableCircle.lua b/ext/Client/RenderableCircle.lua
+index 814f846..6b29f97 100644
+--- a/ext/Client/RenderableCircle.lua
++++ b/ext/Client/RenderableCircle.lua
+@@ -5,6 +5,7 @@ local m_Logger = Logger("RenderableCircle", false)
+ ---@type WindowsCircleSpawner
+ local m_WindowsCircleSpawner = require "Visuals/WindowsCircleSpawner"
+ local m_2PI = 2 * math.pi
++local MAX_WINDOWS_PER_FRAME = 20
+ 
+ ---Creates a new RenderableCircle
+ ---@param p_Center Vec3|nil
+@@ -42,7 +43,7 @@ end
+ ---@param p_PlayerPos Vec3
+ function RenderableCircle:CalculateRenderPoints(p_PlayerPos)
+ 	-- check if circle was updated since previous call
+-	if self.m_HasCalculatedPoints then
++	if self.m_HasCalculatedPoints or self.m_NextRenderPoint ~= nil then
+ 		return
+ 	end
+ 
+@@ -85,16 +86,42 @@ end
+ ---Spawning & Destroying Windows
+ function RenderableCircle:Render()
+ 	if #self.m_RenderPoints > 1 and not self.m_HasRenderedPoints then
++		local s_LevelName = LevelNameHelper:GetLevelName()
++		if s_LevelName == nil or s_LevelName == "" then
++			return
++		end
++
++		local s_MapConfig = MapsConfig[s_LevelName]
++		if s_MapConfig == nil then
++			if self.m_MissingConfigLevel ~= s_LevelName then
++				m_Logger:Error("Missing circle configuration for level " .. s_LevelName)
++				self.m_MissingConfigLevel = s_LevelName
++			end
++			return
++		end
++		self.m_MissingConfigLevel = nil
++
+ 		-- calculate the length between two edges
+ 		local s_Length = self.m_RenderPoints[1]:Distance(self.m_RenderPoints[2])
+ 
+-		-- spawn the windows
+-		for l_Index = 2, #self.m_RenderPoints do
+-			m_WindowsCircleSpawner:SpawnWindow(self.m_RenderPoints[l_Index - 1], self.m_RenderPoints[l_Index], s_Length, l_Index - 1)
++		-- Finish one snapshot before taking the latest circle geometry. This
++		-- caps native entity updates even when a new radius arrives mid-batch.
++		local s_First = self.m_NextRenderPoint or 2
++		local s_Last = #self.m_RenderPoints
++		if EVBotsClientBridge ~= nil then
++			s_Last = math.min(s_Last, s_First + MAX_WINDOWS_PER_FRAME - 1)
++		end
++		for l_Index = s_First, s_Last do
++			m_WindowsCircleSpawner:SpawnWindow(self.m_RenderPoints[l_Index - 1], self.m_RenderPoints[l_Index], s_Length, l_Index - 1, s_MapConfig)
++		end
++		if s_Last < #self.m_RenderPoints then
++			self.m_NextRenderPoint = s_Last + 1
++			return
+ 		end
++		self.m_NextRenderPoint = nil
+ 
+ 		-- destroy unused window entities
+-		m_WindowsCircleSpawner:DestroyEntities(self.m_RectsToRender + 1)
++		m_WindowsCircleSpawner:DestroyEntities(#self.m_RenderPoints)
+ 
+ 		self.m_HasRenderedPoints = true
+ 	end
+diff --git a/ext/Client/Settings.lua b/ext/Client/Settings.lua
+index 1470007..0e324fb 100644
+--- a/ext/Client/Settings.lua
++++ b/ext/Client/Settings.lua
+@@ -28,14 +28,19 @@ function Settings:ApplySettings()
+ 	for l_SettingsName, l_Settings in pairs(SettingsConfig) do
+ 		local s_TempSettings = ResourceManager:GetSettings(l_SettingsName)
+ 		s_TempSettings = _G[l_SettingsName](s_TempSettings)
++		if s_TempSettings ~= nil and s_TempSettings.MakeWritable ~= nil then
++			s_TempSettings:MakeWritable()
++		end
+ 
+ 		for l_SettingName, l_Setting in pairs(l_Settings) do
+ 			if self.m_UserSettings[l_SettingsName] == nil then
+ 				self.m_UserSettings[l_SettingsName] = {}
+ 			end
+ 
+-			self.m_UserSettings[l_SettingsName][l_SettingName] = s_TempSettings[l_SettingName]
+-			s_TempSettings[l_SettingName] = l_Setting
++			if s_TempSettings ~= nil then
++				self.m_UserSettings[l_SettingsName][l_SettingName] = s_TempSettings[l_SettingName]
++				s_TempSettings[l_SettingName] = l_Setting
++			end
+ 		end
+ 	end
+ end
+@@ -45,9 +50,14 @@ function Settings:ResetSettings()
+ 	for l_SettingsName, l_Settings in pairs(self.m_UserSettings) do
+ 		local s_TempSettings = ResourceManager:GetSettings(l_SettingsName)
+ 		s_TempSettings = _G[l_SettingsName](s_TempSettings)
++		if s_TempSettings ~= nil and s_TempSettings.MakeWritable ~= nil then
++			s_TempSettings:MakeWritable()
++		end
+ 
+ 		for l_SettingName, l_Setting in pairs(l_Settings) do
+-			s_TempSettings[l_SettingName] = l_Setting
++			if s_TempSettings ~= nil then
++				s_TempSettings[l_SettingName] = l_Setting
++			end
+ 		end
+ 	end
+ 
+diff --git a/ext/Client/UI/EscMenu.lua b/ext/Client/UI/EscMenu.lua
+index fc53f6e..f6cbad0 100644
+--- a/ext/Client/UI/EscMenu.lua
++++ b/ext/Client/UI/EscMenu.lua
+@@ -15,12 +15,27 @@ end
+ 
+ ---VEXT Client Client:UpdateInput Event
+ function EscMenu:OnClientUpdateInput()
++	local s_OptionsTransition = self.m_OptionsTransition
++	self.m_OptionsTransition = nil
+ 	if m_HudUtils:GetIsInOptionsMenu() then
++		-- BF3 sends the graph transition before polling the key that left Options.
++		if s_OptionsTransition == "menu" then
++			self:OnOpenEscapeMenu()
++		elseif s_OptionsTransition == "game" then
++			self:OnResume()
++		end
+ 		return
+-	elseif m_HudUtils:GetIsInEscMenu() then
+-		if InputManager:WentKeyDown(InputDeviceKeys.IDK_Escape) then
++	end
++	if InputManager:WentKeyDown(InputDeviceKeys.IDK_Escape) then
++		if m_HudUtils:GetIsInEscMenu() then
+ 			WebUI:ExecuteJS("OnMenuEsc()")
+-		elseif InputManager:WentKeyDown(InputDeviceKeys.IDK_ArrowUp)
++		elseif EVBotsClientBridge ~= nil or m_HudUtils:GetIsInDeployScreen() then
++			self:OnOpenEscapeMenu()
++		end
++		return
++	end
++	if m_HudUtils:GetIsInEscMenu() then
++		if InputManager:WentKeyDown(InputDeviceKeys.IDK_ArrowUp)
+ 		or InputManager:WentKeyDown(InputDeviceKeys.IDK_W) then
+ 			WebUI:ExecuteJS("OnMenuArrowUp()")
+ 		elseif InputManager:WentKeyDown(InputDeviceKeys.IDK_ArrowDown)
+@@ -37,23 +52,23 @@ function EscMenu:OnClientUpdateInput()
+ 		or InputManager:WentKeyDown(InputDeviceKeys.IDK_Space) then
+ 			WebUI:ExecuteJS("OnMenuEnter()")
+ 		end
+-	elseif m_HudUtils:GetIsInDeployScreen() then
+-		if InputManager:WentKeyDown(InputDeviceKeys.IDK_Escape) then
+-			self:OnOpenEscapeMenu()
+-		end
+ 	end
+ end
+ 
+ -- TODO: switch to enum
+ ---Custom Client WebUI:TriggerMenuFunction WebUI Event
+ ---@param p_Function string
+-function EscMenu:OnWebUITriggerMenuFunction(p_Function)
++function EscMenu:OnWebUITriggerMenuFunction(p_Function, p_Hud)
+ 	if p_Function == "resume" then
+ 		self:OnResume()
+ 	elseif p_Function == "team" then
+-		m_Logger:Write("INFO: Team / Squad is missing.")
++		if p_Hud ~= nil then
++			p_Hud:OpenTeamLobby()
++		end
+ 	elseif p_Function == "inventory" then
+-		m_Logger:Write("INFO: Inventory is missing.")
++		if p_Hud ~= nil then
++			p_Hud:OpenInventoryFromEscapeMenu()
++		end
+ 	elseif p_Function == "options" then
+ 		self:OnOptions()
+ 	elseif p_Function == "quit" then
+@@ -87,10 +102,20 @@ end
+ ---@return boolean
+ function EscMenu:OnEscapeMenuCallback(p_Entity, p_EntityEvent)
+ 	if p_EntityEvent.eventId == MathUtils:FNVHash("EnterFromGame") then
+-		self:OnOpenEscapeMenu()
++		-- EVBots handles the physical key in Client:UpdateInput. Opening here
++		-- as well makes the same key edge close the menu on that update.
++		if EVBotsClientBridge == nil then
++			self:OnOpenEscapeMenu()
++		elseif m_HudUtils:GetIsInOptionsMenu() then
++			self.m_OptionsTransition = "menu"
++		end
+ 		return false
+ 	elseif p_EntityEvent.eventId == MathUtils:FNVHash("ExitUIGraph") then
+-		self:OnResume()
++		if EVBotsClientBridge == nil then
++			self:OnResume()
++		elseif m_HudUtils:GetIsInOptionsMenu() then
++			self.m_OptionsTransition = "game"
++		end
+ 	end
+ end
+ 
+@@ -101,6 +126,9 @@ end
+ 
+ ---Opens the Escape Menu and does a bunch of entity related stuff
+ function EscMenu:OnOpenEscapeMenu()
++	if m_HudUtils:GetIsInEscMenu() and not m_HudUtils:GetIsInOptionsMenu() then
++		return
++	end
+ 	if m_HudUtils:GetIsInventoryOpened() then
+ 		m_HudUtils:SetIsInventoryOpened(false)
+ 		WebUI:ExecuteJS("OnInventoryOpen(false);")
+@@ -122,6 +150,10 @@ end
+ 
+ ---Closes the Escape Menu and does a bunch of entity related stuff
+ function EscMenu:OnResume()
++	if not m_HudUtils:GetIsInEscMenu() and not m_HudUtils:GetIsInOptionsMenu() then
++		return
++	end
++	m_HudUtils:SetIsInOptionsMenu(false)
+ 	m_HudUtils:SetIsInEscMenu(false)
+ 	m_HudUtils:DisableMenuVisualEnv()
+ 	m_HudUtils:ExitSoundState()
+diff --git a/ext/Client/UI/Hud.lua b/ext/Client/UI/Hud.lua
+index 5815e29..23e0303 100644
+--- a/ext/Client/UI/Hud.lua
++++ b/ext/Client/UI/Hud.lua
+@@ -188,13 +188,13 @@ function VuBattleRoyaleHud:OnUIDrawHud()
+ 		return
+ 	end
+ 
++	self:OnUpdateTeamData()
+ 	self:PushManDownMapMarkers()
+ 	--self:PushMarkerUpdate()
+ 	self:PushLocalPlayerPos()
+ 	self:PushLocalPlayerYaw()
+ 	self:PushLocalPlayerAmmoArmorAndHealth()
+ 	self:OnUpdatePlacement()
+-	self:OnUpdateTeamData()
+ end
+ 
+ 
+@@ -210,11 +210,19 @@ function VuBattleRoyaleHud:OnClientUpdateInput()
+ 		return
+ 	end
+ 
+-	if InputManager:WentKeyDown(InputDeviceKeys.IDK_F10)
+-	and self.m_GameState ~= GameStates.Plane and self.m_GameState ~= GameStates.PlaneToFirstCircle then
+-		if self.m_GameState ~= GameStates.Match and s_LocalPlayer.soldier ~= nil then
+-			m_DeployScreen:OpenDeployScreen()
+-			NetEvents:Send(PlayerEvents.Despawn)
++	if InputManager:WentKeyDown(InputDeviceKeys.IDK_F10) then
++		self:OpenTeamLobby()
++	end
++
++	-- EVBots exposes per-frame keys but does not emit UI:InputConceptEvent.
++	-- Use the HUD's displayed shortcuts in this runtime; VU uses its usual hook.
++	if EVBotsClientBridge ~= nil then
++		if InputManager:WentKeyDown(InputDeviceKeys.IDK_Tab) then
++			self:HandleHudInputAction(UIInputAction.UIInputAction_Tab)
++		elseif InputManager:WentKeyDown(InputDeviceKeys.IDK_M) then
++			self:HandleHudInputAction(UIInputAction.UIInputAction_MapSize)
++		elseif InputManager:WentKeyDown(InputDeviceKeys.IDK_N) then
++			self:HandleHudInputAction(UIInputAction.UIInputAction_MapZoom)
+ 		end
+ 	end
+ 
+@@ -522,8 +530,16 @@ end
+ ---@param p_EventType UIInputActionEventType|integer
+ ---@param p_Action UIInputAction|integer
+ function VuBattleRoyaleHud:OnInputConceptEvent(p_HookCtx, p_EventType, p_Action)
+-	if p_EventType ~= UIInputActionEventType.UIInputActionEventType_Pressed then
+-		return
++	if p_EventType == UIInputActionEventType.UIInputActionEventType_Pressed
++	and self:HandleHudInputAction(p_Action) then
++		p_HookCtx:Pass(UIInputAction.UIInputAction_None, p_EventType)
++	end
++end
++
++function VuBattleRoyaleHud:HandleHudInputAction(p_Action)
++	if not self.m_IsLevelLoaded or m_HudUtils:GetIsInOptionsMenu()
++	or m_HudUtils:GetIsInEscMenu() or m_HudUtils:GetIsInDeployScreen() then
++		return false
+ 	end
+ 
+ 	if p_Action == UIInputAction.UIInputAction_MapSize then
+@@ -544,55 +560,31 @@ function VuBattleRoyaleHud:OnInputConceptEvent(p_HookCtx, p_EventType, p_Action)
+ 			m_HudUtils:OnEnableMouse()
+ 		end
+ 
+-		p_HookCtx:Pass(UIInputAction.UIInputAction_None, p_EventType)
+-		return
++		return true
+ 	end
+ 
+ 	if p_Action == UIInputAction.UIInputAction_MapZoom then
+ 		WebUI:ExecuteJS("OnMapZoomChange();")
+-		p_HookCtx:Pass(UIInputAction.UIInputAction_None, p_EventType)
+-		return
++		return true
+ 	end
+ 
+ 	if p_Action == UIInputAction.UIInputAction_ToggleMinimapType then
+ 		WebUI:ExecuteJS("OnMapSwitchRotation();")
+-		p_HookCtx:Pass(UIInputAction.UIInputAction_None, p_EventType)
+-		return
++		return true
+ 	end
+ 
+-	if SpectatorManager:GetSpectating() then
+-		return
+-	end
+-
+-	-- Open / Close Inventory UI
+ 	if p_Action == UIInputAction.UIInputAction_Tab then
+-		-- make sure the player is in no other menu
+-		if not m_HudUtils:GetIsInOptionsMenu()
+-		and not m_HudUtils:GetIsInEscMenu()
+-		and not m_HudUtils:GetIsInDeployScreen() then
+-			if m_HudUtils:GetIsInventoryOpened() then
+-				m_HudUtils:SetIsInventoryOpened(false)
+-				WebUI:ExecuteJS("OnInventoryOpen(false);")
+-				m_HudUtils:HUDEnterUIGraph()
+-				m_HudUtils:ShowCrosshair(true)
+-			else
+-				-- if the minimap is opened we close it
+-				if m_HudUtils:GetIsMapOpened() then
+-					m_HudUtils:SetIsMapOpened(false)
+-					WebUI:ExecuteJS("OnOpenCloseMap(false);")
+-				end
+-
+-				if not self.m_IsPlayerOnPlane then
+-					m_HudUtils:SetIsInventoryOpened(true)
+-					WebUI:ExecuteJS("OnInventoryOpen(true);")
+-					m_HudUtils:OnEnableMouse()
+-				end
+-			end
+-
+-			p_HookCtx:Pass(UIInputAction.UIInputAction_None, p_EventType)
+-			return
++		if m_HudUtils:GetIsInventoryOpened() then
++			m_HudUtils:SetIsInventoryOpened(false)
++			WebUI:ExecuteJS("OnInventoryOpen(false);")
++			m_HudUtils:HUDEnterUIGraph()
++			m_HudUtils:ShowCrosshair(true)
++		else
++			self:OpenInventory()
+ 		end
++		return true
+ 	end
++	return false
+ end
+ 
+ ---VEXT Client UI:PushScreen Hook
+@@ -636,7 +628,7 @@ end
+ ---Custom Client WebUI:TriggerMenuFunction WebUI Event
+ ---@param p_Function string
+ function VuBattleRoyaleHud:OnWebUITriggerMenuFunction(p_Function)
+-	m_EscMenu:OnWebUITriggerMenuFunction(p_Function)
++	m_EscMenu:OnWebUITriggerMenuFunction(p_Function, self)
+ end
+ 
+ -- =============================================
+@@ -713,7 +705,11 @@ function VuBattleRoyaleHud:OnLevelFinalized()
+ 	m_HudUtils:EnableTabScoreboard()
+ 	m_HudUtils:EnableBlurEffect(false)
+ 	m_HudUtils:StartupChat()
+-	WebUI:ExecuteJS("OnLevelFinalized('" .. SharedUtils:GetLevelName() .. "');")
++	local s_LevelName = ""
++	if SharedUtils ~= nil and SharedUtils.GetLevelName ~= nil then
++		s_LevelName = SharedUtils:GetLevelName() or ""
++	end
++	WebUI:ExecuteJS("OnLevelFinalized('" .. tostring(s_LevelName) .. "');")
+ 	self:OnGameStateChanged(self.m_GameState)
+ 	m_EscMenu:RegisterEscMenuCallbacks()
+ 	m_HudUtils:OnEnableMouse()
+@@ -791,17 +787,12 @@ function VuBattleRoyaleHud:PushLocalPlayerPos()
+ 	end
+ 
+ 	---@type Vec3
+-	local s_Position = nil
+-
+-	if s_Player.alive then
+-		local s_Soldier = s_Player.soldier
+-
+-		if s_Soldier ~= nil then
+-			s_Position = s_Soldier.worldTransform.trans
+-		end
+-	else
+-		s_Position = ClientUtils:GetCameraTransform().trans
++	local s_Soldier = s_Player.alive and s_Player.soldier
++	local s_Transform = s_Soldier and s_Soldier.worldTransform or ClientUtils:GetCameraTransform()
++	if s_Transform == nil then
++		return
+ 	end
++	local s_Position = s_Transform.trans
+ 
+ 	local s_Table = {
+ 		x = s_Position.x,
+@@ -819,7 +810,11 @@ function VuBattleRoyaleHud:PushLocalPlayerYaw()
+ 		local s_Forward = nil
+ 
+ 		if s_SpectatedPlayer == nil or s_SpectatedPlayer.soldier == nil then
+-			s_Forward = ClientUtils:GetCameraTransform().forward * -1
++			local s_Camera = ClientUtils:GetCameraTransform()
++			if s_Camera == nil then
++				return
++			end
++			s_Forward = s_Camera.forward * -1
+ 		else
+ 			s_Forward = s_SpectatedPlayer.soldier.worldTransform.forward
+ 		end
+@@ -835,6 +830,9 @@ function VuBattleRoyaleHud:PushLocalPlayerYaw()
+ 		end
+ 
+ 		local s_Camera = ClientUtils:GetCameraTransform()
++		if s_Camera == nil then
++			return
++		end
+ 
+ 		-- TODO: Put this in utils
+ 		---@type number
+@@ -913,11 +911,13 @@ function VuBattleRoyaleHud:PushLocalPlayerAmmoArmorAndHealth()
+ 	self.m_HudOnPlayerArmor:Update(m_BrPlayer:GetArmorPercentage())
+ 	self.m_HudOnPlayerHelmet:Update(m_BrPlayer:GetHelmetPercentage())
+ 
+-	if s_Soldier.weaponsComponent.currentWeapon then
+-		self.m_HudOnPlayerPrimaryAmmo:Update(s_Soldier.weaponsComponent.currentWeapon.primaryAmmo)
+-		self.m_HudOnPlayerSecondaryAmmo:Update(s_Soldier.weaponsComponent.currentWeapon.secondaryAmmo)
+-		self.m_HudOnPlayerFireLogic:Update(s_Soldier.weaponsComponent.currentWeapon.fireLogic)
+-		self.m_HudOnPlayerCurrentWeapon:Update(s_Soldier.weaponsComponent.currentWeapon.name)
++	local s_Weapons = s_Soldier.weaponsComponent
++	local s_CurrentWeapon = s_Weapons and s_Weapons.currentWeapon
++	if s_CurrentWeapon ~= nil then
++		self.m_HudOnPlayerPrimaryAmmo:Update(s_CurrentWeapon.primaryAmmo)
++		self.m_HudOnPlayerSecondaryAmmo:Update(s_CurrentWeapon.secondaryAmmo)
++		self.m_HudOnPlayerFireLogic:Update(s_CurrentWeapon.fireLogic)
++		self.m_HudOnPlayerCurrentWeapon:Update(s_CurrentWeapon.name)
+ 	end
+ end
+ 
+@@ -984,7 +984,70 @@ function VuBattleRoyaleHud:PushManDownMapMarkers()
+ 	end
+ end
+ 
++-- Both F10 and the Escape menu use this route. Only the waiting/warmup
++-- states may return to deployment; the running round only shows its roster.
++function VuBattleRoyaleHud:OpenTeamLobby()
++	local s_Player = PlayerManager:GetLocalPlayer()
++	if not self.m_IsLevelLoaded or s_Player == nil or m_HudUtils:GetIsInOptionsMenu() then
++		return false
++	end
++
++	if self.m_GameState ~= GameStates.None and self.m_GameState ~= GameStates.Warmup then
++		if not m_HudUtils:GetIsInEscMenu() then
++			m_EscMenu:OnOpenEscapeMenu()
++		end
++		WebUI:ExecuteJS("OnMenuTeamDetails();")
++		return true
++	end
++
++	if m_HudUtils:GetIsInEscMenu() then
++		m_EscMenu:OnResume()
++	end
++	if m_HudUtils:GetIsInDeployScreen() then
++		return true
++	end
++	if m_HudUtils:GetIsMapOpened() then
++		m_HudUtils:SetIsMapOpened(false)
++		WebUI:ExecuteJS("OnOpenCloseMap(false);")
++	end
++	m_DeployScreen:OpenDeployScreen()
++	if s_Player.soldier ~= nil then
++		NetEvents:Send(PlayerEvents.Despawn)
++	end
++	return true
++end
++
++function VuBattleRoyaleHud:GetInventoryUnavailableReason(p_FromEscapeMenu)
++	local s_Player = PlayerManager:GetLocalPlayer()
++	if not self.m_IsLevelLoaded or s_Player == nil then
++		return "Inventory is available after joining the level."
++	elseif m_HudUtils:GetIsInOptionsMenu() or m_HudUtils:GetIsInDeployScreen() then
++		return "Inventory is available after deployment."
++	elseif m_HudUtils:GetIsInEscMenu() and not p_FromEscapeMenu then
++		return "Close the menu to open inventory."
++	elseif SpectatorManager:GetSpectating() or s_Player.soldier == nil or s_Player.alive == false then
++		return "Inventory is available while your soldier is alive."
++	elseif self.m_IsPlayerOnPlane or self.m_GameState == GameStates.WarmupToPlane
++		or self.m_GameState == GameStates.Plane or self.m_GameState == GameStates.PlaneToFirstCircle then
++		return "Inventory is unavailable during the plane phase."
++	end
++	return nil
++end
++
++function VuBattleRoyaleHud:OpenInventoryFromEscapeMenu()
++	local s_Reason = self:GetInventoryUnavailableReason(true)
++	if s_Reason ~= nil then
++		WebUI:ExecuteJS("OnMenuUnavailable(" .. json.encode(s_Reason) .. ");")
++		return false
++	end
++	m_EscMenu:OnResume()
++	return self:OpenInventory()
++end
++
+ function VuBattleRoyaleHud:OpenInventory()
++	if self:GetInventoryUnavailableReason(false) ~= nil then
++		return false
++	end
+ 	-- make sure the player is in no other menu
+ 	if not m_HudUtils:GetIsInOptionsMenu()
+ 	and not m_HudUtils:GetIsInEscMenu()
+@@ -1001,8 +1064,10 @@ function VuBattleRoyaleHud:OpenInventory()
+ 			m_HudUtils:SetIsInventoryOpened(true)
+ 			WebUI:ExecuteJS("OnInventoryOpen(true);")
+ 			m_HudUtils:OnEnableMouse()
++			return true
+ 		end
+ 	end
++	return false
+ end
+ 
+ -- =============================================
+diff --git a/ext/Client/UI/Utils/HudUtils.lua b/ext/Client/UI/Utils/HudUtils.lua
+index eec72aa..d918fce 100644
+--- a/ext/Client/UI/Utils/HudUtils.lua
++++ b/ext/Client/UI/Utils/HudUtils.lua
+@@ -303,8 +303,8 @@ function HudUtils:GetEnableMouseEntityData()
+ 
+ 	local s_ActionNode = ActionNode()
+ 	s_ActionNode.actionKey = MathUtils:FNVHash("MouseInput")
+-	s_ActionNode.inValue = UINodePort()
+-	s_ActionNode.out = UINodePort()
++	pcall(function() s_ActionNode.inValue = UINodePort() end)
++	pcall(function() s_ActionNode.out = UINodePort() end)
+ 	s_ActionNode.appendIncomingParams = false
+ 	s_ActionNode.name = 'EnableMouseInput'
+ 	s_ActionNode.params:add("True")
+@@ -322,7 +322,7 @@ function HudUtils:GetEnableMouseEntityData()
+ 	s_MousePopupGraphAsset.connections:add(s_InputToDialogNodeConnection)
+ 
+ 	local s_OutputNode = InstanceOutputNode()
+-	s_OutputNode.inValue = UINodePort()
++	pcall(function() s_OutputNode.inValue = UINodePort() end)
+ 	s_OutputNode.id = MathUtils:FNVHash("exitIngameMenuMP")
+ 	s_OutputNode.destroyGraph = true
+ 	s_OutputNode.name = "exitIngameMenuMP"
+@@ -399,8 +399,8 @@ function HudUtils:GetDisableGameInputEntityData()
+ 
+ 	local s_ActionNode = ActionNode()
+ 	s_ActionNode.actionKey = MathUtils:FNVHash("GameInput")
+-	s_ActionNode.inValue = UINodePort()
+-	s_ActionNode.out = UINodePort()
++	pcall(function() s_ActionNode.inValue = UINodePort() end)
++	pcall(function() s_ActionNode.out = UINodePort() end)
+ 	s_ActionNode.appendIncomingParams = false
+ 	s_ActionNode.name = 'DisableGameInput'
+ 	s_ActionNode.params:add("False")
+@@ -418,7 +418,7 @@ function HudUtils:GetDisableGameInputEntityData()
+ 	s_DisableGameInputGraphAsset.connections:add(s_InputToDialogNodeConnection)
+ 
+ 	local s_OutputNode = InstanceOutputNode()
+-	s_OutputNode.inValue = UINodePort()
++	pcall(function() s_OutputNode.inValue = UINodePort() end)
+ 	s_OutputNode.id = MathUtils:FNVHash("exitIngameMenuMP")
+ 	s_OutputNode.destroyGraph = true
+ 	s_OutputNode.name = "exitIngameMenuMP"
+@@ -514,7 +514,11 @@ function HudUtils:EnableShowroomSoldier(p_Enable)
+ 	end
+ 
+ 	if self.m_ShowSoldierInstanceId == nil then
+-		local s_ShowSoldierGraphEntityData = self:GetShowSoldierGraphEntityData()
++		local s_Ok, s_ShowSoldierGraphEntityData = pcall(self.GetShowSoldierGraphEntityData, self)
++		if not s_Ok or s_ShowSoldierGraphEntityData == nil then
++			m_Logger:Warning("EnableShowroomSoldier: graph build failed (EVBots/UI API compatibility).")
++			return
++		end
+ 		local s_ShowSoldierGraphEntity = EntityManager:CreateEntity(s_ShowSoldierGraphEntityData, LinearTransform())
+ 
+ 		if s_ShowSoldierGraphEntity == nil then
+@@ -546,6 +550,16 @@ end
+ function HudUtils:GetShowSoldierGraphEntityData()
+ 	local s_GraphAsset = UIGraphAsset()
+ 
++	local function port(node, name)
++		local ok, val = pcall(function() return node[name] end)
++		if ok and val ~= nil then return val end
++		if name == "inValue" then
++			ok, val = pcall(function() return node["in"] end)
++			if ok and val ~= nil then return val end
++		end
++		return nil
++	end
++
+ 	-- SpawnCustomization
+ 	---@type InstanceInputNode
+ 	local s_ShowSoldierInputNode = m_ConnectionHelper:GetNode('InstanceInputNode', s_GraphAsset, { 'out' })
+@@ -555,7 +569,9 @@ function HudUtils:GetShowSoldierGraphEntityData()
+ 	local s_ShowSoldierActionNode = m_ConnectionHelper:GetNode('ActionNode', s_GraphAsset, { 'inValue', 'out' })
+ 	s_ShowSoldierActionNode.actionKey = UIAction.SpawnCustomization
+ 	s_ShowSoldierActionNode.params:add('-1')
+-	m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_ShowSoldierInputNode, s_ShowSoldierActionNode, s_ShowSoldierInputNode.out, s_ShowSoldierActionNode.inValue)
++	if s_ShowSoldierInputNode ~= nil and s_ShowSoldierActionNode ~= nil then
++		m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_ShowSoldierInputNode, s_ShowSoldierActionNode, port(s_ShowSoldierInputNode, 'out'), port(s_ShowSoldierActionNode, 'inValue'))
++	end
+ 
+ 	-- UnSpawnCustomization
+ 	---@type InstanceInputNode
+@@ -566,13 +582,19 @@ function HudUtils:GetShowSoldierGraphEntityData()
+ 	local s_HideSoldierActionNode = m_ConnectionHelper:GetNode('ActionNode', s_GraphAsset, { 'inValue', 'out' })
+ 	s_HideSoldierActionNode.actionKey = UIAction.UnSpawnCustomization
+ 	s_HideSoldierActionNode.params:add('-1')
+-	m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_HideSoldierInputNode, s_HideSoldierActionNode, s_HideSoldierInputNode.out, s_HideSoldierActionNode.inValue)
++	if s_HideSoldierInputNode ~= nil and s_HideSoldierActionNode ~= nil then
++		m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_HideSoldierInputNode, s_HideSoldierActionNode, port(s_HideSoldierInputNode, 'out'), port(s_HideSoldierActionNode, 'inValue'))
++	end
+ 
+ 	-- Outputs
+ 	---@type InstanceOutputNode
+ 	local s_OutputNode = m_ConnectionHelper:GetNode('InstanceOutputNode', s_GraphAsset, { 'inValue' })
+-	m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_ShowSoldierActionNode, s_OutputNode, s_ShowSoldierActionNode.out, s_OutputNode.inValue)
+-	m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_HideSoldierActionNode, s_OutputNode, s_HideSoldierActionNode.out, s_OutputNode.inValue)
++	if s_ShowSoldierActionNode ~= nil and s_OutputNode ~= nil then
++		m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_ShowSoldierActionNode, s_OutputNode, port(s_ShowSoldierActionNode, 'out'), port(s_OutputNode, 'inValue'))
++	end
++	if s_HideSoldierActionNode ~= nil and s_OutputNode ~= nil then
++		m_ConnectionHelper:AddNodeConnection(s_GraphAsset, s_HideSoldierActionNode, s_OutputNode, port(s_HideSoldierActionNode, 'out'), port(s_OutputNode, 'inValue'))
++	end
+ 
+ 	local s_ShowSoldierGraphEntityData = UIGraphEntityData()
+ 	s_ShowSoldierGraphEntityData.graphAsset = s_GraphAsset
+diff --git a/ext/Client/Visuals/CircleEffects.lua b/ext/Client/Visuals/CircleEffects.lua
+index bcb68c1..ba40a8c 100644
+--- a/ext/Client/Visuals/CircleEffects.lua
++++ b/ext/Client/Visuals/CircleEffects.lua
+@@ -14,15 +14,13 @@ end
+ 
+ function CircleEffects:ResetVars()
+ 	self.m_Circle = Circle()
++	self.m_HasCircleState = false
+ 	self.m_SoundEntity = nil
++	self.m_SoundTransformUnavailable = false
+ 	self.m_LastCameraPosition = nil
+ end
+ 
+-function CircleEffects:CreateSoundEntity()
+-	if self.m_SoundEntity ~= nil then
+-		return
+-	end
+-
++function CircleEffects:CreateSoundEntity(p_Position)
+ 	---@type SoundPatchAsset|nil
+ 	local s_SoundPatchAsset = m_SoundPatchAsset:GetInstance()
+ 	if s_SoundPatchAsset == nil then
+@@ -43,30 +41,28 @@ function CircleEffects:CreateSoundEntity()
+ 	-- create sound effect entity
+ 	if s_EntityData ~= nil then
+ 		local s_EntityPos = LinearTransform()
+-		s_EntityPos.trans = Vec3(0.0, 500.0, 0.0)
++		s_EntityPos.trans = p_Position
+ 
+ 		local s_Entity = EntityManager:CreateEntity(s_EntityData, s_EntityPos)
+ 		if s_Entity ~= nil then
+ 			s_Entity:Init(Realm.Realm_Client, true)
+-			self.m_SoundEntity = SpatialEntity(s_Entity)
++			local s_SpatialEntity = SpatialEntity(s_Entity)
++			if s_SpatialEntity.transform == nil then
++				-- The positional effect needs a writable spatial transform.
++				s_Entity:Destroy()
++				self.m_SoundTransformUnavailable = true
++				return
++			end
++			self.m_SoundEntity = s_SpatialEntity
+ 
+ 			s_Entity:FireEvent("Start")
+ 		end
+ 	end
+ end
+ 
+----@return SpatialEntity|nil
+-function CircleEffects:GetSoundEntity()
+-	if self.m_SoundEntity == nil then
+-		self:CreateSoundEntity()
+-	end
+-
+-	return self.m_SoundEntity
+-end
+-
+ ---@param p_Forced boolean
+ function CircleEffects:UpdateSoundPosition(p_Forced)
+-	if not CircleConfig.EnableCircleSound then
++	if not CircleConfig.EnableCircleSound or not self.m_HasCircleState or self.m_SoundTransformUnavailable then
+ 		return
+ 	end
+ 
+@@ -82,11 +78,6 @@ function CircleEffects:UpdateSoundPosition(p_Forced)
+ 	end
+ 	self.m_LastCameraPosition = s_CameraPosition
+ 
+-	local s_SoundEntity = self:GetSoundEntity()
+-	if s_SoundEntity == nil then
+-		return
+-	end
+-
+ 	-- calculate closest circle point
+ 	local s_CameraAngle = m_MathHelper:VectorAngle(self.m_Circle.m_Center, s_CameraPosition)
+ 	local s_ClosestCircumferencePoint = self.m_Circle:CircumferencePoint(s_CameraAngle, s_CameraPosition.y)
+@@ -96,8 +87,20 @@ function CircleEffects:UpdateSoundPosition(p_Forced)
+ 		return
+ 	end
+ 
++	local s_SoundEntity = self.m_SoundEntity
++	if s_SoundEntity == nil then
++		self:CreateSoundEntity(s_ClosestCircumferencePoint)
++		return
++	end
++
+ 	-- reset .transform, cause just updating .trans doesnt move the sound
+ 	local s_Transform = s_SoundEntity.transform
++	if s_Transform == nil then
++		s_SoundEntity:Destroy()
++		self.m_SoundEntity = nil
++		self.m_SoundTransformUnavailable = true
++		return
++	end
+ 	s_Transform.trans = s_ClosestCircumferencePoint
+ 
+ 	s_SoundEntity.transform = s_Transform
+@@ -160,15 +163,14 @@ end
+ ---Custom Client PhaseManagerEvent.Update Event
+ ---@param p_State table
+ function CircleEffects:OnPhaseManagerUpdate(p_State)
+-	self.m_Circle:Update(p_State.OuterCircle.Center, p_State.OuterCircle.Radius)
+-	self:UpdateSoundPosition(true)
+-	self:UpdateFog()
++	self:OnOuterCircleMove(p_State.OuterCircle)
+ end
+ 
+ ---Custom Client PhaseManagerEvent.CircleMove Event
+ ---@param p_OuterCircle table
+ function CircleEffects:OnOuterCircleMove(p_OuterCircle)
+ 	self.m_Circle:Update(p_OuterCircle.Center, p_OuterCircle.Radius)
++	self.m_HasCircleState = true
+ 	self:UpdateSoundPosition(true)
+ 	self:UpdateFog()
+ end
+diff --git a/ext/Client/Visuals/Presets/Common/OutOfCircleNightPreset.lua b/ext/Client/Visuals/Presets/Common/OutOfCircleNightPreset.lua
+index 7023a02..a6bf671 100644
+--- a/ext/Client/Visuals/Presets/Common/OutOfCircleNightPreset.lua
++++ b/ext/Client/Visuals/Presets/Common/OutOfCircleNightPreset.lua
+@@ -113,7 +113,7 @@ return [[
+ 			"PanoramicUVMinY": "0",
+ 			"PanoramicUVMaxY": "0.5",
+ 			"PanoramicUVMinX": "0",
+-			"PanoramicTexture": "evels/Testrange_Lighting/Sky/SKY_03_Panorama_D",
++        "PanoramicTexture": "Levels/Testrange_Lighting/Sky/SKY_03_Panorama_D",
+ 			"PanoramicAlphaTexture": "Levels/Testrange_Lighting/Sky/Sky_03_Panorama_A",
+ 			"PanoramicTileFactor": "1",
+ 			"CloudLayer1Altitude": "10000",
+diff --git a/ext/Client/Visuals/Presets/Maps/XP5_003/XP5_003_Night_Three.lua b/ext/Client/Visuals/Presets/Maps/XP5_003/XP5_003_Night_Three.lua
+index f89023f..a0e6d5b 100644
+--- a/ext/Client/Visuals/Presets/Maps/XP5_003/XP5_003_Night_Three.lua
++++ b/ext/Client/Visuals/Presets/Maps/XP5_003/XP5_003_Night_Three.lua
+@@ -84,7 +84,7 @@ return [[
+ 	   "PanoramicUVMinY": "0",
+ 	   "PanoramicUVMaxY": "0.5",
+ 	   "PanoramicUVMinX": "0",
+-	   "PanoramicTexture": "evels/Testrange_Lighting/Sky/SKY_03_Panorama_D",
++        "PanoramicTexture": "Levels/Testrange_Lighting/Sky/SKY_03_Panorama_D",
+ 	   "PanoramicAlphaTexture": "Levels/Testrange_Lighting/Sky/Sky_03_Panorama_A",
+ 	   "PanoramicTileFactor": "1",
+ 	   "CloudLayer1Altitude": "10000",
+diff --git a/ext/Client/Visuals/WindowsCircleSpawner.lua b/ext/Client/Visuals/WindowsCircleSpawner.lua
+index 2a2e32e..63eb7a0 100644
+--- a/ext/Client/Visuals/WindowsCircleSpawner.lua
++++ b/ext/Client/Visuals/WindowsCircleSpawner.lua
+@@ -16,25 +16,15 @@ function WindowsCircleSpawner:__init()
+ 	self.m_EntityData = nil
+ end
+ 
+-function WindowsCircleSpawner:SpawnWindow(p_From, p_To, p_EdgeLength, p_CachedEntityIndex)
+-	local s_MapConfig = MapsConfig[LevelNameHelper:GetLevelName()]
+-
+-	-- create entity transform
++function WindowsCircleSpawner:SpawnWindow(p_From, p_To, p_EdgeLength, p_CachedEntityIndex, p_MapConfig)
+ 	local s_Angle = math.atan(p_To.z - p_From.z, p_To.x - p_From.x)
+-	local s_EntityTrans = MathUtils:GetTransformFromYPR(-s_Angle, 0, 0)
+-	s_EntityTrans.trans = Vec3((p_From.x + p_To.x) / 2, s_MapConfig.CircleWallY, (p_From.z + p_To.z) / 2)
+-
+-	local s_Left, s_Up, s_Forward = m_RotationHelper:GetLUFfromYPR(0, math.pi, 0)
+-
+-	-- scale entity transform
+-	local s_XScaling = p_EdgeLength / m_MagicScalingNumber
+-	local s_ScalingMatrix = LinearTransform(
+-		Vec3(s_Left.x * s_XScaling, s_Left.y, s_Left.z),
+-		Vec3(s_Up.x, s_Up.y * s_MapConfig.CircleWallHeightModifier, s_Up.z),
++	local s_Left, s_Up, s_Forward = m_RotationHelper:GetLUFfromYPR(-s_Angle, math.pi, 0)
++	local s_EntityTrans = LinearTransform(
++		s_Left * (p_EdgeLength / m_MagicScalingNumber),
++		s_Up * p_MapConfig.CircleWallHeightModifier,
+ 		s_Forward,
+-		Vec3(0.0, 0.0, 0.0)
++		Vec3((p_From.x + p_To.x) / 2, p_MapConfig.CircleWallY, (p_From.z + p_To.z) / 2)
+ 	)
+-	s_EntityTrans = s_ScalingMatrix * s_EntityTrans
+ 
+ 	-- get or create an entity and update it's transform
+ 	local s_Entity = self:GetOrCreateEntity(p_CachedEntityIndex, s_EntityTrans)
+diff --git a/ext/Server/BRAirdropManager.lua b/ext/Server/BRAirdropManager.lua
+index 6238cb9..d6816a8 100644
+--- a/ext/Server/BRAirdropManager.lua
++++ b/ext/Server/BRAirdropManager.lua
+@@ -29,6 +29,7 @@ local m_LootPickupDatabase = require "Types/BRLootPickupDatabase"
+ local m_LootRandomizer = require "BRLootRandomizer"
+ ---@type GunshipServer
+ local m_GunshipServer = require "GunshipServer"
++local m_Airdrop = require "__shared/Modifications/Airdrop"
+ 
+ function BRAirdropManager:__init()
+ 	self:RegisterVars()
+@@ -53,9 +54,10 @@ function BRAirdropManager:OnEngineUpdate(p_DeltaTime)
+         local s_PlaneDistance = self:GetPlaneDistance()
+ 
+         if s_PlaneDistance ~= nil and s_PlaneDistance <= 2.5 then
+-            self:CreateAirdrop(m_GunshipServer:GetDropPosition())
+             self.m_AirdropDropped = true
+-			NetEvents:BroadcastLocal("Airdrop:Dropped")
++			if self:CreateAirdrop(m_GunshipServer:GetDropPosition()) then
++				NetEvents:BroadcastLocal("Airdrop:Dropped")
++			end
+         end
+     end
+ end
+@@ -118,12 +120,14 @@ end
+ ---@param p_Transform LinearTransform|nil
+ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 	if p_Transform == nil then
+-		return
++		return false
+ 	end
+ 
+-	local s_ObjectBlueprint = ObjectBlueprint(
+-		ResourceManager:SearchForInstanceByGuid(AirdropGuids.CustomAirdropGuid)
+-	)
++	local s_ObjectBlueprint = m_Airdrop:GetRegisteredBlueprint()
++	if s_ObjectBlueprint == nil then
++		print("[Airdrop] Drop skipped: no registered crate blueprint in this level")
++		return false
++	end
+ 
+ 	local s_CreationParams = EntityCreationParams()
+ 	s_CreationParams.transform = p_Transform
+@@ -133,7 +137,7 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 
+ 	if s_CreatedBus == nil then
+ 		m_Logger:Write("CreatedBus is nil for the Airdrop.")
+-		return
++		return false
+ 	end
+ 
+ 	for _, l_Entity in pairs(s_CreatedBus.entities) do
+@@ -144,9 +148,16 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 		---@param p_Entity Entity
+ 		---@param p_CollisionInfo CollisionInfo
+ 		function(p_Entity, p_CollisionInfo)
+-			if p_CollisionInfo.entity.typeInfo.name == "ServerSoldierEntity" then
++			if p_CollisionInfo.entity ~= nil and p_CollisionInfo.entity:Is("ServerSoldierEntity") then
+ 				return
+ 			end
++			local s_LandingTransform = SpatialEntity(p_Entity).transform
++			if s_LandingTransform == nil then
++				local s_Contact = p_CollisionInfo.position
++				if s_Contact == nil then return end
++				s_LandingTransform = LinearTransform()
++				s_LandingTransform.trans = Vec3(s_Contact.x, s_Contact.y + 0.25, s_Contact.z)
++			end
+ 
+ 			if self.m_AirdropTimers[p_Entity.instanceId] ~= nil then
+ 				self.m_AirdropTimers[p_Entity.instanceId]:Destroy()
+@@ -154,7 +165,7 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 
+ 			---@class AirdropTable
+ 			local s_Table = {
+-				transform = SpatialEntity(p_Entity).transform,
++				transform = s_LandingTransform,
+ 				entity = p_Entity,
+ 				handle = self.m_AirdropHandles,
+ 			}
+@@ -186,7 +197,7 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 				---@type BRItemArmor
+ 				local s_ArmorItem = m_ItemDatabase:CreateItem(m_ArmorDefinitions["armor-tier-3"])
+ 
+-				m_LootPickupDatabase:CreateAirdropLootPickup(p_Table.transform, {
++				local s_Pickup = m_LootPickupDatabase:CreateAirdropLootPickup(p_Table.transform, {
+ 					s_WeaponItem,
+ 					s_AttachmentItem,
+ 					s_AmmoItem,
+@@ -194,6 +205,8 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 					s_HelmetItem,
+ 					s_ArmorItem
+ 				})
++				self.m_AirdropTimers[p_Table.entity.instanceId] = nil
++				if s_Pickup ~= nil then print("[Airdrop] Landed crate loot created") end
+ 
+ 				if p_Table.handle[p_Table.entity.instanceId] ~= nil then
+ 					local s_PhysicsEntity = PhysicsEntity(p_Table.entity)
+@@ -207,6 +220,7 @@ function BRAirdropManager:CreateAirdrop(p_Transform)
+ 
+ 		self.m_AirdropHandles[l_PhysicsEntity.instanceId] = l_CollisionCallback
+ 	end
++	return true
+ end
+ 
+ ---@param p_Center Vec3
+diff --git a/ext/Server/GunshipServer.lua b/ext/Server/GunshipServer.lua
+index 9230d8d..0778a49 100644
+--- a/ext/Server/GunshipServer.lua
++++ b/ext/Server/GunshipServer.lua
+@@ -5,6 +5,7 @@ GunshipServer = class "GunshipServer"
+ local m_TeamManagerServer = require "BRTeamManagerServer"
+ ---@type Logger
+ local m_Logger = Logger("GunshipServer", false)
++local LOCATOR_GUID = Guid("B7C9767E-4154-49F9-B934-F80923BB82C0")
+ 
+ function GunshipServer:__init()
+ 	self:RegisterVars()
+@@ -22,6 +23,8 @@ function GunshipServer:RegisterVars()
+ 	---@type string|nil
+ 	self.m_Type = nil
+ 	self.m_CalculatedTime = 0.0
++	self.m_FlightStarted = false
++	self.m_LocatorEntity = nil
+ 
+ 	---@type integer[] @playerIds
+ 	self.m_OpenParachuteList = {}
+@@ -54,11 +57,18 @@ function GunshipServer:OnUpdatePassPreSim(p_DeltaTime)
+ 	s_Transform:LookAtTransform(self.m_StartPos, self.m_EndPos)
+ 	s_Transform.trans = self:GetCurrentPosition()
+ 
+-	if self.m_CalculatedTime == 0.0 then
+-		self:SetVehicleEntityTransform(s_Transform)
++	if not self.m_FlightStarted then
++		-- Spawning the vehicle queues native work. Keep the start transform
++		-- until both the route locator and the resulting vehicle exist.
++		if not self:SetLocatorEntityTransform(s_Transform) or not self:SetVehicleEntityTransform(s_Transform) then
++			return
++		end
++		self.m_FlightStarted = true
++		NetEvents:BroadcastLocal(GunshipEvents.Enable, self.m_Type)
++	else
++		self:SetLocatorEntityTransform(s_Transform)
+ 	end
+ 
+-	self:SetLocatorEntityTransform(s_Transform)
+ 	self.m_CalculatedTime = self.m_CalculatedTime + p_DeltaTime / self.m_TimeToFly
+ 
+ 	if self.m_RemoveOnEnd and self.m_CalculatedTime >= 1.0 then
+@@ -98,11 +108,30 @@ end
+ ---@param p_Player Player
+ ---@param p_Transform LinearTransform|nil
+ function GunshipServer:OnJumpOutOfGunship(p_Player, p_Transform)
++	if not self.m_FlightStarted or self.m_Type ~= "Paradrop" then
++		return
++	end
++
+ 	local s_Transform = self:GetDropPosition()
++	if s_Transform == nil then
++		return
++	end
+ 
++	-- The camera can look down at the plane. Use only its horizontal heading
++	-- and keep all three axes of the soldier's spawn transform orthonormal.
++	local s_Position = s_Transform.trans
++	local s_Heading = Vec3(s_Transform.forward.x, 0.0, s_Transform.forward.z)
+ 	if p_Transform ~= nil then
+-		s_Transform.left = p_Transform.left * - 1
+-		s_Transform.forward = p_Transform.forward * - 1
++		local s_CameraHeading = Vec3(-p_Transform.forward.x, 0.0, -p_Transform.forward.z)
++		if s_CameraHeading.magnitude > 1e-6 then
++			s_Heading = s_CameraHeading
++		end
++	end
++	if s_Heading.magnitude > 1e-6 then
++		s_Transform:LookAtTransform(s_Position, s_Position + s_Heading)
++	else
++		s_Transform = LinearTransform()
++		s_Transform.trans = s_Position
+ 	end
+ 
+ 	local s_BrPlayer = m_TeamManagerServer:GetPlayer(p_Player)
+@@ -119,7 +148,16 @@ end
+ ---Custom Server GunshipEvents.OpenParachute NetEvent
+ ---@param p_Player Player
+ function GunshipServer:OnOpenParachute(p_Player)
+-	if p_Player == nil then
++	if p_Player == nil or self.m_Type ~= "Paradrop" then
++		return
++	end
++
++	local s_Soldier = p_Player.soldier
++	if s_Soldier ~= nil and s_Soldier.RequestParachute ~= nil then
++		local s_Ok, s_Reason = s_Soldier:RequestParachute()
++		if not s_Ok then
++			m_Logger:Warning("RequestParachute: " .. tostring(s_Reason))
++		end
+ 		return
+ 	end
+ 
+@@ -149,6 +187,7 @@ function GunshipServer:Enable(p_StartPos, p_EndPos, p_TimeToFly, p_Type, p_Remov
+ 	end
+ 
+ 	self.m_CalculatedTime = 0.0
++	self.m_FlightStarted = false
+ 	self.m_StartPos = p_StartPos
+ 	self.m_EndPos = p_EndPos
+ 	self.m_TimeToFly = p_TimeToFly
+@@ -157,7 +196,6 @@ function GunshipServer:Enable(p_StartPos, p_EndPos, p_TimeToFly, p_Type, p_Remov
+ 	self.m_RemoveOnEnd = p_RemoveOnEnd or false
+ 
+ 	self:Spawn()
+-	NetEvents:BroadcastLocal(GunshipEvents.Enable, p_Type)
+ end
+ 
+ function GunshipServer:Disable()
+@@ -219,28 +257,35 @@ function GunshipServer:SetVehicleEntityTransform(p_Transform)
+ 		if s_VehicleEntity.data.instanceGuid == Guid("81ED68CF-5FDE-4C24-A6B4-C38FB8D4A778") then
+ 			s_VehicleEntity = SpatialEntity(s_VehicleEntity)
+ 			s_VehicleEntity.transform = p_Transform
+-			break
++			return true
+ 		end
+ 
+ 		s_VehicleEntity = s_VehicleEntityIterator:Next()
+ 	end
++	return false
+ end
+ 
+ ---@param p_Transform LinearTransform
+ function GunshipServer:SetLocatorEntityTransform(p_Transform)
+-	local s_LocatorEntityIterator = EntityManager:GetIterator("LocatorEntity")
+-	---@type SpatialEntity|nil
+-	local s_LocatorEntity = s_LocatorEntityIterator:Next()
+-
+-	while s_LocatorEntity do
+-		if s_LocatorEntity.data.instanceGuid == Guid("B7C9767E-4154-49F9-B934-F80923BB82C0") then
+-			s_LocatorEntity = SpatialEntity(s_LocatorEntity)
+-			s_LocatorEntity.transform = p_Transform
+-			return
++	-- Reuse the weak generation for PreSim updates while the route exists.
++	if self.m_LocatorEntity == nil or not self.m_LocatorEntity.isValid then
++		self.m_LocatorEntity = nil
++		local s_Iterator = EntityManager:GetIterator("LocatorEntity")
++		local s_Locator = s_Iterator:Next()
++		while s_Locator ~= nil do
++			local s_Data = s_Locator.data
++			if s_Data ~= nil and s_Data.instanceGuid == LOCATOR_GUID then
++				self.m_LocatorEntity = SpatialEntity(s_Locator)
++				break
++			end
++			s_Locator = s_Iterator:Next()
+ 		end
+-
+-		s_LocatorEntity = s_LocatorEntityIterator:Next()
+ 	end
++	if self.m_LocatorEntity == nil then
++		return false
++	end
++	self.m_LocatorEntity.transform = p_Transform
++	return true
+ end
+ 
+ -- =============================================
+diff --git a/ext/Server/MapVEManagerServer.lua b/ext/Server/MapVEManagerServer.lua
+index 9816105..642369d 100644
+--- a/ext/Server/MapVEManagerServer.lua
++++ b/ext/Server/MapVEManagerServer.lua
+@@ -47,7 +47,9 @@ function MapVEManagerServer:OnLevelLoaded(p_LevelName, p_GameMode, p_Round, p_Ro
+ 		return
+ 	end
+ 
+-    self:SetMapVEPreset(math.random(1, #m_Map.VEPresets))
++	-- On round reload, the previous level can be destroyed after LoadResources.
++	self.m_CurrentMapPresetNames = m_Map.VEPresets
++	self:SetMapVEPreset(math.random(1, #self.m_CurrentMapPresetNames))
+ end
+ 
+ ---@param p_VEIndex integer
+diff --git a/ext/Server/Match.lua b/ext/Server/Match.lua
+index fe0487e..ba5b4e5 100644
+--- a/ext/Server/Match.lua
++++ b/ext/Server/Match.lua
+@@ -224,6 +224,7 @@ end
+ 
+ function Match:DoWeHaveAWinner()
+ 	if PlayerManager:GetPlayerCount() == 0 then
++		self.m_WinnerTeam = nil
+ 		m_GameStateManager:SetGameState(GameStates.EndGame)
+ 		return
+ 	end
+@@ -233,6 +234,14 @@ function Match:DoWeHaveAWinner()
+ 		return
+ 	end
+ 
++	-- A simultaneous elimination can leave connected players but no survivors.
++	-- End that round without a winner so the normal restart can still run.
++	if m_TeamManagerServer:GetAliveTeamCount() == 0 then
++		self.m_WinnerTeam = nil
++		m_GameStateManager:SetGameState(GameStates.EndGame)
++		return
++	end
++
+ 	local s_WinningTeam = m_TeamManagerServer:GetWinningTeam()
+ 
+ 	if s_WinningTeam ~= nil then
+diff --git a/ext/Server/Types/BRInventory.lua b/ext/Server/Types/BRInventory.lua
+index 47621b2..0617d3c 100644
+--- a/ext/Server/Types/BRInventory.lua
++++ b/ext/Server/Types/BRInventory.lua
+@@ -1,6 +1,7 @@
+ local m_ItemDatabase = require "Types/BRItemDatabase"
+ local m_InventoryManager = require "BRInventoryManager"
+ local m_LootPickupDatabase = require "Types/BRLootPickupDatabase"
++local m_GameStateManager = require "GameStateManager"
+ 
+ ---@type ArrayHelper
+ local m_ArrayHelper = require "__shared/Utils/ArrayHelper"
+@@ -608,6 +609,13 @@ end
+ -- Avoids multiple uneeded firings that may happen during some operations
+ ---@param p_Timeout number|nil
+ function BRInventory:DeferUpdateSoldierCustomization(p_Timeout)
++	-- После разминки сброс слотов идёт сразу за UnSpawnAllSoldiers. Новый
++	-- солдат получит текущую экипировку в BRPlayer:Spawn в момент прыжка.
++	if m_GameStateManager:IsGameState(GameStates.WarmupToPlane) then
++		self:RemoveTimer("UpdateCustomization")
++		return
++	end
++
+ 	if not self:ResetTimer("UpdateCustomization") then
+ 		self:SetTimer("UpdateCustomization", m_TimerManager:Timeout(p_Timeout or 0.12, self, self.UpdateSoldierCustomization))
+ 	end
+@@ -616,6 +624,10 @@ end
+ function BRInventory:UpdateSoldierCustomization()
+ 	self:RemoveTimer("UpdateCustomization")
+ 
++	if m_GameStateManager:IsGameState(GameStates.WarmupToPlane) then
++		return
++	end
++
+ 	local s_Soldier = self:GetOwnerSoldier()
+ 	if s_Soldier == nil then
+ 		return
+@@ -660,13 +672,21 @@ function BRInventory:CreateCustomizeSoldierData()
+ 	s_CustomizeSoldierData.overrideCriticalHealthThreshold = -1.0
+ 
+ 	-- Update weapon and gadget slots
++	local s_Soldier = self:GetOwnerSoldier()
++	local s_CurrentSlot = s_Soldier ~= nil and s_Soldier.weaponsComponent.currentWeaponSlot or nil
++	local s_ActiveSlot = s_CurrentSlot == WeaponSlot.WeaponSlot_7 and s_CurrentSlot or nil
++	local s_FirstEquippedSlot = nil
+ 	local s_SlotIndexes = {InventorySlot.PrimaryWeapon, InventorySlot.SecondaryWeapon, InventorySlot.Gadget}
+ 
+-	for _, l_SlotIndex in pairs(s_SlotIndexes) do
++	for _, l_SlotIndex in ipairs(s_SlotIndexes) do
+ 		local s_UnlockWeaponAndSlot = self.m_Slots[l_SlotIndex]:GetUnlockWeaponAndSlot()
+ 
+ 		if s_UnlockWeaponAndSlot ~= nil then
+ 			s_CustomizeSoldierData.weapons:add(s_UnlockWeaponAndSlot)
++			s_FirstEquippedSlot = s_FirstEquippedSlot or s_UnlockWeaponAndSlot.slot
++			if s_UnlockWeaponAndSlot.slot == s_CurrentSlot then
++				s_ActiveSlot = s_CurrentSlot
++			end
+ 		end
+ 	end
+ 
+@@ -684,15 +704,7 @@ function BRInventory:CreateCustomizeSoldierData()
+ 	s_UnlockWeaponAndSlot.slot = WeaponSlot.WeaponSlot_9
+ 	s_CustomizeSoldierData.weapons:add(s_UnlockWeaponAndSlot)]]
+ 
+-	local s_Soldier = self:GetOwnerSoldier()
+-	if s_Soldier ~= nil then
+-		local s_CurrWeaponSlot = s_Soldier.weaponsComponent.currentWeaponSlot
+-		if s_CurrWeaponSlot then
+-			s_CustomizeSoldierData.activeSlot = s_CurrWeaponSlot
+-		else
+-			s_CustomizeSoldierData.activeSlot = WeaponSlot.WeaponSlot_7
+-		end
+-	end
++	s_CustomizeSoldierData.activeSlot = s_ActiveSlot or s_FirstEquippedSlot or WeaponSlot.WeaponSlot_7
+ 
+ 	s_CustomizeSoldierData.removeAllExistingWeapons = true
+ 	s_CustomizeSoldierData.disableDeathPickup = false
+diff --git a/ext/Server/Types/BRPlayer.lua b/ext/Server/Types/BRPlayer.lua
+index 31cb6ee..fac72af 100644
+--- a/ext/Server/Types/BRPlayer.lua
++++ b/ext/Server/Types/BRPlayer.lua
+@@ -67,8 +67,9 @@ end
+ ---@param p_Damage number
+ ---@param p_Giver BRPlayer|nil
+ ---@param p_IsHeadShot boolean
++---@param p_HealthBefore number|nil
+ ---@return number
+-function BRPlayer:OnDamaged(p_Damage, p_Giver, p_IsHeadShot)
++function BRPlayer:OnDamaged(p_Damage, p_Giver, p_IsHeadShot, p_HealthBefore)
+ 	-- check if giver isnt a teammate or the player himself
+ 	if p_Giver ~= nil and self:IsTeammate(p_Giver) and not self:Equals(p_Giver) then
+ 		return 0.0
+@@ -83,7 +84,7 @@ function BRPlayer:OnDamaged(p_Damage, p_Giver, p_IsHeadShot)
+ 		return p_Damage
+ 	end
+ 
+-	local s_Health = s_Soldier.health
++	local s_Health = p_HealthBefore or s_Soldier.health
+ 	if s_Soldier.isInteractiveManDown and p_Damage >= s_Health then
+ 		self:Kill(true)
+ 		Events:DispatchLocal(TeamManagerEvent.RegisterKill, self, p_Giver)
+diff --git a/ext/Server/__init__.lua b/ext/Server/__init__.lua
+index 0cc0639..ec389cc 100644
+--- a/ext/Server/__init__.lua
++++ b/ext/Server/__init__.lua
+@@ -587,7 +587,8 @@ function VuBattleRoyaleServer:OnSoldierDamage(p_HookCtx, p_Soldier, p_Info, p_Gi
+ 		s_BrGiver = m_TeamManagerServer:GetPlayer(p_GiverInfo.giver)
+ 	end
+ 
+-	p_Info.damage = s_BrPlayer:OnDamaged(p_Info.damage, s_BrGiver, p_Info.boneIndex == 1)
++	local s_HealthBefore = type(p_Info) == "table" and p_Info.evbotsHealthBefore or nil
++	p_Info.damage = s_BrPlayer:OnDamaged(p_Info.damage, s_BrGiver, p_Info.boneIndex == 1, s_HealthBefore)
+ 	p_HookCtx:Pass(p_Soldier, p_Info, p_GiverInfo)
+ end
+ 
+diff --git a/ext/Shared/Configs/ServerConfig.lua b/ext/Shared/Configs/ServerConfig.lua
+index 8a17a18..5d269ff 100644
+--- a/ext/Shared/Configs/ServerConfig.lua
++++ b/ext/Shared/Configs/ServerConfig.lua
+@@ -1,10 +1,10 @@
+ ---@class ServerConfig
+ ServerConfig = {
+ 	-- Minimum ammounts of players to start the warmup and then the match
+-	MinPlayersToStart = 99,
++	MinPlayersToStart = 1,
+ 
+ 	-- Number of player per team
+-	PlayersPerTeam = 1,
++	PlayersPerTeam = 4,
+ 
+ 	-- Time to update some of the HUD components
+ 	HudUpdateRate = 1.5,
+@@ -38,19 +38,20 @@ ServerConfig = {
+ 	Debug = {
+ 		EnableAllChat = true,
+ 
+-		EnableDebugRenderer = true,
++		EnableDebugRenderer = false,
+ 
+ 		Logger_Enabled = true,
+ 
+ 		Logger_Print_All = false,
+ 
++		-- Solo test: don't end match immediately when only one team remains.
+ 		DisableWinningCheck = true,
+ 
+ 		DisableMapLoader = false,
+ 
+-		EnableWhitelist = true,
++		EnableWhitelist = false,
+ 
+-		EnableDebugCommands = true,
++		EnableDebugCommands = false,
+ 
+ 		Whitelist = {
+ 			"voteban_flash",
+diff --git a/ext/Shared/Logic/BundleManager.lua b/ext/Shared/Logic/BundleManager.lua
+index efcff02..637b4fe 100644
+--- a/ext/Shared/Logic/BundleManager.lua
++++ b/ext/Shared/Logic/BundleManager.lua
+@@ -5,6 +5,7 @@ local m_Logger = Logger("BundleManager", false)
+ 
+ function BundleManager:__init()
+ 	self.m_LevelName = ""
++	self.m_MountedSuperBundles = {}
+ end
+ 
+ ---VEXT Shared Level:LoadResources Event
+@@ -25,9 +26,22 @@ function BundleManager:OnLoadResources(p_LevelName, p_GameMode, p_IsDedicatedSer
+ 
+ 	m_Logger:Write("Mounting SuperBundles:")
+ 
++	local s_Seen = {}
+ 	for l_Index, l_SuperBundle in pairs(MapsConfig[LevelNameHelper:GetLevelName()].SuperBundles) do
+-		ResourceManager:MountSuperBundle(l_SuperBundle)
+-		m_Logger:Write(l_Index .. ": " .. l_SuperBundle)
++		if type(l_SuperBundle) == "string" and l_SuperBundle ~= "" and not s_Seen[l_SuperBundle] then
++			s_Seen[l_SuperBundle] = true
++			if not self.m_MountedSuperBundles[l_SuperBundle] then
++				self.m_MountedSuperBundles[l_SuperBundle] = true
++				local s_Ok, s_Err = pcall(ResourceManager.MountSuperBundle, ResourceManager, l_SuperBundle)
++				if s_Ok then
++					m_Logger:Write(l_Index .. ": " .. l_SuperBundle)
++				else
++					m_Logger:Warning("MountSuperBundle failed for " .. tostring(l_SuperBundle) .. ": " .. tostring(s_Err))
++				end
++			else
++				m_Logger:Write(l_Index .. ": " .. l_SuperBundle .. " (already mounted)")
++			end
++		end
+ 	end
+ end
+ 
+@@ -37,11 +51,23 @@ end
+ ---@param p_Compartment ResourceCompartment|integer
+ function BundleManager:OnLoadBundles(p_HookCtx, p_Bundles, p_Compartment)
+ 	if #p_Bundles == 1 and p_Bundles[1] == SharedUtils:GetLevelName() then
+-		local s_Bundles = MapsConfig[LevelNameHelper:GetLevelName()].Bundles
++		local s_MapConfig = MapsConfig[LevelNameHelper:GetLevelName()]
++		if s_MapConfig == nil or s_MapConfig.Bundles == nil then
++			return
++		end
++		local s_SourceBundles = s_MapConfig.Bundles
++		local s_Bundles = {}
++		local s_Seen = {}
+ 
+ 		m_Logger:Write("Injecting bundles:")
+-		for l_Index, l_Bundle in pairs(s_Bundles) do
+-			m_Logger:Write(l_Index .. ": " .. l_Bundle)
++		for l_Index, l_Bundle in pairs(s_SourceBundles) do
++			if type(l_Bundle) == "string" and l_Bundle ~= "" and not s_Seen[l_Bundle] then
++				s_Seen[l_Bundle] = true
++				table.insert(s_Bundles, l_Bundle)
++				m_Logger:Write(l_Index .. ": " .. l_Bundle)
++			else
++				m_Logger:Write(l_Index .. ": " .. tostring(l_Bundle) .. " (skipped duplicate)")
++			end
+ 		end
+ 
+ 		p_HookCtx:Pass(s_Bundles, p_Compartment)
+@@ -74,15 +100,17 @@ end
+ ---VEXT Shared Level:RegisterEntityResources Event
+ ---@param p_LevelData DataContainer
+ function BundleManager:OnRegisterEntityResources(p_LevelData)
+-	m_Logger:Write("Adding registries")
+-	local s_BundleRegistries = MapsConfig[LevelNameHelper:GetLevelName()].BundleRegistries
+-
+-	if s_BundleRegistries == nil then
++	local s_MapConfig = MapsConfig[LevelNameHelper:GetLevelName()]
++	if s_MapConfig == nil or s_MapConfig.BundleRegistries == nil then
+ 		return
+ 	end
++	m_Logger:Write("Adding registries")
+ 
+-	for _, l_Registry in ipairs(s_BundleRegistries) do
+-		ResourceManager:AddRegistry(l_Registry:GetInstance(), ResourceCompartment.ResourceCompartment_Game)
++	for _, l_Registry in ipairs(s_MapConfig.BundleRegistries) do
++		local s_Ok, s_Err = pcall(ResourceManager.AddRegistry, ResourceManager, l_Registry:GetInstance(), ResourceCompartment.ResourceCompartment_Game)
++		if not s_Ok then
++			m_Logger:Warning("AddRegistry failed: " .. tostring(s_Err))
++		end
+ 	end
+ end
+ 
+diff --git a/ext/Shared/Maps/XP5_003.lua b/ext/Shared/Maps/XP5_003.lua
+index a2700a2..99f1933 100644
+--- a/ext/Shared/Maps/XP5_003.lua
++++ b/ext/Shared/Maps/XP5_003.lua
+@@ -9,20 +9,18 @@
+ 
+ -- XP5_003 Kiasar Railroad
+ return {
++	-- COOP_009 removed for vanilla server/client data parity on this stand (no prepared overlay).
+ 	SuperBundles = {
+ 		"XP1Chunks",
+ 		"Levels/XP1_004/XP1_004",
+ 		"XP3Chunks",
+ 		"Levels/XP3_Shield/XP3_Shield",
+ 		"Levels/XP3_Alborz/XP3_Alborz",
+-		"Levels/COOP_009/COOP_009",
+ 	},
+ 	Bundles = {
+ 		"Levels/XP1_004/XP1_004",
+ 		"Levels/XP3_Shield/XP3_Shield",
+ 		"Levels/XP3_Alborz/XP3_Alborz",
+-		"Levels/COOP_009/COOP_009",
+-		"Levels/COOP_009/AB03_Parent",
+ 		"Levels/XP5_003/XP5_003",
+ 	},
+ 	TerrainName = "levels/xp5_003/xp5_003_terrain/xp5_003_terrain",
+diff --git a/ext/Shared/Maps/XP5_003/XP5_003_ObjectModifications.lua b/ext/Shared/Maps/XP5_003/XP5_003_ObjectModifications.lua
+index 71c4e48..7025f42 100644
+--- a/ext/Shared/Maps/XP5_003/XP5_003_ObjectModifications.lua
++++ b/ext/Shared/Maps/XP5_003/XP5_003_ObjectModifications.lua
+@@ -96,16 +96,26 @@ end
+ -- ==================
+ 
+ function XP5_003_ObjectModifications:OnIndustrialYardWordPartData(p_WorldPartData)
++	local s_NextIndex = 0
++	for _, l_Object in pairs(p_WorldPartData.objects) do
++		local s_Index = l_Object.indexInBlueprint
++		if s_Index < 65535 then
++			s_NextIndex = math.max(s_NextIndex, s_Index + 1)
++		end
++	end
++	assert(s_NextIndex < 65534, "No blueprint indices available for predestruction")
+ 	local s_LinearTransform = LinearTransform()
+ 	s_LinearTransform.trans = Vec3(962.125000, 198.775192, -622.037109)
+ 
+ 	local s_PredestructionEntityData = PredestructionEntityData()
++	s_PredestructionEntityData.indexInBlueprint = s_NextIndex
+ 	s_PredestructionEntityData.transform = s_LinearTransform
+ 	s_PredestructionEntityData.radius = 1
+ 	p_WorldPartData.objects:add(s_PredestructionEntityData)
+ 	
+ 	s_LinearTransform.trans = Vec3(715.993164, 194.293747, -1141.727539)
+ 	local s_PredestructionEntityData2 = PredestructionEntityData()
++	s_PredestructionEntityData2.indexInBlueprint = s_NextIndex + 1
+ 	s_PredestructionEntityData2.transform = s_LinearTransform
+ 	s_PredestructionEntityData2.radius = 5
+ 	p_WorldPartData.objects:add(s_PredestructionEntityData2)
+diff --git a/ext/Shared/Modifications/Airdrop.lua b/ext/Shared/Modifications/Airdrop.lua
+index 21a3a5d..d950d20 100644
+--- a/ext/Shared/Modifications/Airdrop.lua
++++ b/ext/Shared/Modifications/Airdrop.lua
+@@ -17,6 +17,15 @@ end
+ 
+ function Airdrop:ModifyAirdropObject(p_OriginalBlueprint)
+ 	local s_Partition = p_OriginalBlueprint.partition
++	local s_Existing = s_Partition:FindInstance(AirdropGuids.CustomAirdropGuid)
++	if s_Existing ~= nil then
++		return s_Existing
++	end
++	local s_RigidMesh = m_RigidMesh:GetInstance()
++	local s_HavokAsset = m_HavokAsset:GetInstance()
++	if s_RigidMesh == nil or s_HavokAsset == nil then
++		return nil
++	end
+ 	local s_CustomObjectBlueprint = ObjectBlueprint(p_OriginalBlueprint:Clone(AirdropGuids.CustomAirdropGuid))
+ 	s_CustomObjectBlueprint.name = "Props/BattleRoyale/Airdrop_Banger"
+ 
+@@ -35,11 +44,11 @@ function Airdrop:ModifyAirdropObject(p_OriginalBlueprint)
+ 	s_CustomPhysicsEntityData.rigidBodies[1] = s_CustomRigidBodyData
+ 
+ 	-- Modify all the stuff we need
+-	s_CustomBangerEntityData.mesh = m_RigidMesh:GetInstance()
++	s_CustomBangerEntityData.mesh = s_RigidMesh
+ 	s_CustomBangerEntityData.timeToLive = 0.0
+ 
+ 	s_CustomPhysicsEntityData.scaledAssets:clear()
+-	s_CustomPhysicsEntityData.scaledAssets:add(m_HavokAsset:GetInstance())
++	s_CustomPhysicsEntityData.scaledAssets:add(s_HavokAsset)
+ 
+ 	s_CustomRigidBodyData.mass = 1000
+ 	s_CustomRigidBodyData.linearVelocityDamping = 0.27
+@@ -48,17 +57,23 @@ function Airdrop:ModifyAirdropObject(p_OriginalBlueprint)
+ 	-- This will make it so we can later look it up by its GUID.
+ 	s_Partition:AddInstance(s_CustomObjectBlueprint)
+ 	m_Logger:Write("Airdrop blueprint created.")
++	return s_Partition:FindInstance(AirdropGuids.CustomAirdropGuid)
+ end
+ 
+ function Airdrop:OnRegisterEntityResources()
++	self.m_RegisteredBlueprint = nil
++	local s_OriginalBlueprint = m_AirdropObjectBlueprint:GetInstance()
++	local s_CustomObjectBlueprint = s_OriginalBlueprint ~= nil and self:ModifyAirdropObject(s_OriginalBlueprint) or nil
++	if s_CustomObjectBlueprint == nil then
++		print("[Airdrop] Blueprint or crate assets unavailable at level registration")
++		return
++	end
+ 	-- In order for our custom airdrop to be usable we need to register it with the engine.
+ 	-- This means that during this event we need to create a new registry container and add
+ 	-- all relevant datacontainers to the respective arrays.
+ 	local s_Registry = RegistryContainer()
+ 
+-	-- Locate the custom airdrop BP, get its data, and add to the registry container.
+-	-- You can fetch the BP in the same way when you want to spawn it
+-	local s_CustomObjectBlueprint = ObjectBlueprint(ResourceManager:SearchForInstanceByGuid(AirdropGuids.CustomAirdropGuid))
++	s_CustomObjectBlueprint = ObjectBlueprint(s_CustomObjectBlueprint)
+ 	local s_CustomBangerEntityData = BangerEntityData(s_CustomObjectBlueprint.object)
+ 	local s_CustomPhysicsEntityData = PhysicsEntityData(s_CustomBangerEntityData.physicsData)
+ 	local s_CustomRigidBodyData = RigidBodyData(s_CustomPhysicsEntityData.rigidBodies[1])
+@@ -70,7 +85,17 @@ function Airdrop:OnRegisterEntityResources()
+ 
+ 	-- And then add the registry to the game compartment.
+ 	ResourceManager:AddRegistry(s_Registry, ResourceCompartment.ResourceCompartment_Game)
+-	m_Logger:Write("Airdrop blueprint registered.")
++	self.m_RegisteredBlueprint = s_CustomObjectBlueprint
++	print("[Airdrop] Crate blueprint registered for this level")
++end
++
++function Airdrop:GetRegisteredBlueprint()
++	local s_Partition = ResourceManager:FindDatabasePartition(m_AirdropObjectBlueprint.m_PartitionGuid)
++	local s_Blueprint = s_Partition ~= nil and s_Partition:FindInstance(AirdropGuids.CustomAirdropGuid) or nil
++	if s_Blueprint == self.m_RegisteredBlueprint then
++		return s_Blueprint
++	end
++	return nil
+ end
+ 
+ return Airdrop()
+diff --git a/ext/Shared/Modifications/ConquestLargeModifier.lua b/ext/Shared/Modifications/ConquestLargeModifier.lua
+index c5d37a3..61a525a 100644
+--- a/ext/Shared/Modifications/ConquestLargeModifier.lua
++++ b/ext/Shared/Modifications/ConquestLargeModifier.lua
+@@ -3,6 +3,7 @@ ConquestModifier = class 'ConquestModifier'
+ 
+ local m_Conquest_PreRoundEntityData = DC(Guid("0C342A8C-BCDE-11E0-8467-9159D6ACA94C"), Guid("B3AF5AF0-4703-402C-A238-601E610A0B48"))
+ local m_Conquest_SpatialPrefabBlueprint = DC(Guid("0C342A8C-BCDE-11E0-8467-9159D6ACA94C"), Guid("ADDF2F84-F2E8-2AD8-5FE6-56620207AC95"))
++local m_SpawnReferenceGuid = Guid("67A2C146-9CC0-E7EC-5227-B2DCB9D316C1")
+ local m_SoldierBlueprint = DC(Guid("F256E142-C9D8-4BFE-985B-3960B9E9D189"), Guid("261E43BF-259B-41D2-BF3B-9AE4DDA96AD2"))
+ local m_CapturePointPrefab_HQ_US_XP_CameraEntityData = DC(Guid("694A231C-4439-461D-A7FF-764915FC3E7C"), Guid("6B728CD3-EBD2-4D48-BF49-50A7CFAB0A30"))
+ local m_CapturePointPrefab_HQ_RU_XP_CameraEntityData = DC(Guid("5D4B1096-3089-45A7-9E3A-422E15E0D8F6"), Guid("A4281E60-7557-4BFF-ADD4-18D7E8780873"))
+@@ -12,6 +13,10 @@ local m_ConquestTeamsLarge_LogicPrefabBlueprint = DC(Guid("466C8E5C-BD29-11E0-92
+ 
+ local m_Logger = Logger("ConquestModifier", false)
+ 
++function ConquestModifier:OnLoadResources()
++	self.m_RegisteredSpawnReference = nil
++end
++
+ function ConquestModifier:RegisterCallbacks()
+ 	m_Conquest_PreRoundEntityData:RegisterLoadHandler(self, self.OnPreRoundEntityData)
+ 	m_Conquest_SpatialPrefabBlueprint:RegisterLoadHandler(self, self.OnSpatialPrefabBlueprint)
+@@ -88,29 +93,67 @@ function ConquestModifier:OnTeamEntityDataModification(p_TeamData, p_LogicPrefab
+ end
+ 
+ function ConquestModifier:OnAddCharacterSpawnReference(p_SpatialPrefabBlueprint, p_SoldierBlueprint)
+-	-- Add 1 CharacterSpawnReference
+ 	p_SpatialPrefabBlueprint = SpatialPrefabBlueprint(p_SpatialPrefabBlueprint)
+-	p_SpatialPrefabBlueprint:MakeWritable()
++	p_SoldierBlueprint = SoldierBlueprint(p_SoldierBlueprint)
+ 	local s_Partition = ResourceManager:FindPartitionForInstance(p_SpatialPrefabBlueprint)
+-	local s_Registry = RegistryContainer()
++	local s_SpawnReference = s_Partition:FindInstance(m_SpawnReferenceGuid)
++
++	if self.m_RegisteredSpawnReference ~= nil and self.m_RegisteredSpawnReference ~= s_SpawnReference then
++		error("Conquest spawn reference changed after registration")
++	end
++	if s_SpawnReference ~= nil and
++		(not s_SpawnReference:Is("CharacterSpawnReferenceObjectData") or
++			s_SpawnReference.locationTextSid ~= "1" or s_SpawnReference.locationNameSid ~= "Spawn 1" or
++			s_SpawnReference.team ~= TeamId.TeamNeutral or not s_SpawnReference.useAsSpawnPoint or
++			s_SpawnReference.playerType ~= PlayerSpawnType.PlayerSpawnType_HumanPlayer) then
++		error("Conquest spawn GUID belongs to an unexpected instance")
++	end
++
++	local s_Objects = p_SpatialPrefabBlueprint.objects
++	local s_InPrefab = false
++	for i = 1, #s_Objects do
++		local l_Object = s_Objects[i]
++		if l_Object ~= nil and l_Object.instanceGuid == m_SpawnReferenceGuid then
++			if s_InPrefab or l_Object ~= s_SpawnReference then
++				error("Conquest prefab contains a conflicting spawn reference")
++			end
++			s_InPrefab = true
++		end
++	end
++
++	if s_SpawnReference == nil then
++		local s_NewReference = CharacterSpawnReferenceObjectData(m_SpawnReferenceGuid)
++		s_NewReference.team = TeamId.TeamNeutral
++		s_NewReference.locationTextSid = "1"
++		s_NewReference.locationNameSid = "Spawn 1"
++		s_NewReference.blueprint = p_SoldierBlueprint
++		s_NewReference.playerType = PlayerSpawnType.PlayerSpawnType_HumanPlayer
++		s_NewReference.useAsSpawnPoint = true
++		s_NewReference.maxCount = 0
++		s_NewReference.takeControlEntryIndex = 1
++		s_NewReference.isEventConnectionTarget = 2
++		s_NewReference.isPropertyConnectionTarget = 3
++		s_Partition:AddInstance(s_NewReference)
++		s_SpawnReference = assert(s_Partition:FindInstance(m_SpawnReferenceGuid), "Conquest spawn reference is missing after AddInstance")
++	elseif s_SpawnReference.blueprint ~= p_SoldierBlueprint then
++		s_SpawnReference:MakeWritable()
++		s_SpawnReference.blueprint = p_SoldierBlueprint
++	end
+ 
+-	local s_CharacterSpawnReferenceObjectData = CharacterSpawnReferenceObjectData(Guid("67A2C146-9CC0-E7EC-5227-B2DCB9D316C1"))
+-	s_CharacterSpawnReferenceObjectData.team = TeamId.TeamNeutral
+-	s_CharacterSpawnReferenceObjectData.locationTextSid = "1"
+-	s_CharacterSpawnReferenceObjectData.locationNameSid = "Spawn 1"
+-	s_CharacterSpawnReferenceObjectData.blueprint = SoldierBlueprint(p_SoldierBlueprint)
+-	s_CharacterSpawnReferenceObjectData.playerType = PlayerSpawnType.PlayerSpawnType_HumanPlayer
+-	s_CharacterSpawnReferenceObjectData.useAsSpawnPoint = true
+-	s_CharacterSpawnReferenceObjectData.maxCount = 0
+-	s_CharacterSpawnReferenceObjectData.takeControlEntryIndex = 1
+-	s_CharacterSpawnReferenceObjectData.isEventConnectionTarget = 2
+-	s_CharacterSpawnReferenceObjectData.isPropertyConnectionTarget = 3
+-
+-	p_SpatialPrefabBlueprint.objects:add(s_CharacterSpawnReferenceObjectData)
+-	s_Partition:AddInstance(s_CharacterSpawnReferenceObjectData)
+-	s_Registry.referenceObjectRegistry:add(s_CharacterSpawnReferenceObjectData)
++	if not s_InPrefab then
++		p_SpatialPrefabBlueprint:MakeWritable()
++		p_SpatialPrefabBlueprint.objects:add(s_SpawnReference)
++	end
+ 
++	-- Both watched partitions can complete the wait within the same level load.
++	if self.m_RegisteredSpawnReference == s_SpawnReference then
++		return
++	end
++	local s_Registry = RegistryContainer()
++	s_Registry.referenceObjectRegistry:add(s_SpawnReference)
+ 	ResourceManager:AddRegistry(s_Registry, ResourceCompartment.ResourceCompartment_Game)
++	self.m_RegisteredSpawnReference = s_SpawnReference
++	print("[ConquestModifier] Spawn reference registered for this level")
+ end
+ 
+ return ConquestModifier()
+diff --git a/ext/Shared/Modifications/FX/FireEffectsModifier.lua b/ext/Shared/Modifications/FX/FireEffectsModifier.lua
+index a3095d6..24a7290 100644
+--- a/ext/Shared/Modifications/FX/FireEffectsModifier.lua
++++ b/ext/Shared/Modifications/FX/FireEffectsModifier.lua
+@@ -46,7 +46,9 @@ function FireEffectsModifier:DisableLightComponent(p_EffectBlueprint)
+ 		if l_Component:Is("EmitterEntityData") then
+ 			local s_EmitterEntityData = EmitterEntityData(l_Component)
+ 
+-			if s_EmitterEntityData.emitter.isLazyLoaded then
++			if s_EmitterEntityData.emitter == nil then
++				-- no emitter in this runtime/build
++			elseif s_EmitterEntityData.emitter.isLazyLoaded then
+ 				s_EmitterEntityData.emitter:RegisterLoadHandlerOnce({s_EffectEntityData, l_Index}, function(p_Table, p_Instance)
+ 					local s_EmitterDocument = EmitterDocument(s_EmitterEntityData.emitter)
+ 
+diff --git a/ext/Shared/Modifications/ModificationsCommon.lua b/ext/Shared/Modifications/ModificationsCommon.lua
+index 7c57560..e7aae27 100644
+--- a/ext/Shared/Modifications/ModificationsCommon.lua
++++ b/ext/Shared/Modifications/ModificationsCommon.lua
+@@ -99,6 +99,7 @@ end
+ ---@param p_IsDedicatedServer boolean
+ function ModificationsCommon:OnLoadResources(p_LevelName, p_GameMode, p_IsDedicatedServer)
+ 	m_Logger:Write("OnLoadResources")
++	m_ConquestLargeModifier:OnLoadResources()
+ 
+ 	local s_MapId = LevelNameHelper:GetLevelName()
+ 	local s_MapConfig = MapsConfig[s_MapId]
+diff --git a/ext/Shared/Types/BRLootPickup.lua b/ext/Shared/Types/BRLootPickup.lua
+index b244f9f..3768a55 100644
+--- a/ext/Shared/Types/BRLootPickup.lua
++++ b/ext/Shared/Types/BRLootPickup.lua
+@@ -63,9 +63,18 @@ function BRLootPickup:ContainsItemId(p_Id)
+ 	return self.m_Items[p_Id] ~= nil
+ end
+ 
++---@return boolean
++function BRLootPickup:UsesProtectionCase()
++	if EVBotsClientBridge == nil or self.m_Type.Name ~= "Basic" or not m_MapHelper:SizeEquals(self.m_Items, 1) then
++		return false
++	end
++	local s_Type = m_MapHelper:NextItem(self.m_Items).m_Definition.m_Type
++	return s_Type == ItemType.Helmet or s_Type == ItemType.Armor
++end
++
+ ---@return MeshModel|nil
+ function BRLootPickup:GetMesh()
+-	if self.m_Type.Name ~= "Airdrop" and m_MapHelper:SizeEquals(self.m_Items, 1) then
++	if self.m_Type.Name ~= "Airdrop" and not self:UsesProtectionCase() and m_MapHelper:SizeEquals(self.m_Items, 1) then
+ 		-- If there is only one item then use its mesh
+ 		return m_MapHelper:NextItem(self.m_Items).m_Definition.m_Mesh
+ 	elseif self.m_Type.Mesh ~= nil then
+@@ -78,7 +87,7 @@ end
+ 
+ ---@return LinearTransform
+ function BRLootPickup:GetLinearTransform()
+-	if self.m_Type.Name ~= "Airdrop" and m_MapHelper:SizeEquals(self.m_Items, 1) then
++	if self.m_Type.Name ~= "Airdrop" and not self:UsesProtectionCase() and m_MapHelper:SizeEquals(self.m_Items, 1) then
+ 		-- If there is only one item then use its LT
+ 		return m_MapHelper:NextItem(self.m_Items).m_Definition.m_Transform
+ 	elseif self.m_Type.Mesh ~= nil then
+diff --git a/ext/Shared/Types/MeshModel/Assets/AirdropSmoke.lua b/ext/Shared/Types/MeshModel/Assets/AirdropSmoke.lua
+index 3461b91..91c081f 100644
+--- a/ext/Shared/Types/MeshModel/Assets/AirdropSmoke.lua
++++ b/ext/Shared/Types/MeshModel/Assets/AirdropSmoke.lua
+@@ -7,8 +7,12 @@ local m_Airdrop_Object_FX_Smoke = DC(Guid("25B9AFF0-6622-11DE-9DCF-A96EA7FB2539"
+ ---@param p_Transform LinearTransform
+ ---@return table<integer, Entity>|nil
+ function AirdropSmoke:Draw(p_Transform)
++	local s_Blueprint = m_Airdrop_Object_FX_Smoke:GetInstance()
++	if s_Blueprint == nil then
++		return nil
++	end
+ 	local s_Data = EntityManager:CreateEntitiesFromBlueprint(
+-		m_Airdrop_Object_FX_Smoke:GetInstance(),
++		s_Blueprint,
+ 		LinearTransform(
+ 			p_Transform.left,
+ 			p_Transform.up,
+@@ -25,7 +29,7 @@ function AirdropSmoke:Draw(p_Transform)
+ 		local s_Entities = {}
+ 
+ 		for _, l_Entity in pairs(s_Data.entities) do
+-			l_Entity:Init(Realm.Realm_Client, false)
++			l_Entity:Init(Realm.Realm_Client, true)
+ 			l_Entity:FireEvent("Start")
+ 			s_Entities[l_Entity.instanceId] = l_Entity
+ 		end
+diff --git a/ext/Shared/Utils/ConnectionHelper.lua b/ext/Shared/Utils/ConnectionHelper.lua
+index ed3c769..65969f2 100644
+--- a/ext/Shared/Utils/ConnectionHelper.lua
++++ b/ext/Shared/Utils/ConnectionHelper.lua
+@@ -147,7 +147,21 @@ function ConnectionHelper:GetNode(p_TypeName, p_ParentGraphAsset, p_FieldsToPopu
+ 
+ 	---@type string
+ 	for _, l_Field in ipairs(p_FieldsToPopulate or {}) do
+-		s_Node[l_Field] = UINodePort()
++		local ok = pcall(function()
++			s_Node[l_Field] = UINodePort()
++		end)
++		if not ok then
++			-- EVBots runtime may expose different port field names than VU; keep best-effort compatibility.
++			local s_Alt = l_Field
++			if l_Field == "inValue" then
++				s_Alt = "in"
++			elseif l_Field == "in" then
++				s_Alt = "inValue"
++			end
++			if s_Alt ~= l_Field then
++				pcall(function() s_Node[s_Alt] = UINodePort() end)
++			end
++		end
+ 	end
+ 
+ 	p_ParentGraphAsset.nodes:add(s_Node)
+diff --git a/ui/package.json b/ui/package.json
+index 0347b28..b61a5f0 100644
+--- a/ui/package.json
++++ b/ui/package.json
+@@ -5,20 +5,20 @@
+     "dependencies": {
+         "@dnd-kit/core": "^3.0.1",
+         "@inlet/react-pixi": "6.6.5",
+-        "@pixi/graphics-extras": "^6.0.1",
++        "@pixi/graphics-extras": "6.0.1",
+         "@testing-library/jest-dom": "^5.14.1",
+         "@testing-library/react": "^12.0.0",
+         "@testing-library/user-event": "^13.2.1",
+         "@types/howler": "^2.2.4",
+         "@types/jest": "^27.0.1",
+-        "@types/node": "^16.7.1",
+-        "@types/react": "^17.0.19",
+-        "@types/react-dom": "^17.0.9",
++        "@types/node": "16.7.1",
++        "@types/react": "17.0.19",
++        "@types/react-dom": "17.0.9",
+         "@types/react-select": "^4.0.13",
+         "howler": "^2.2.3",
+-        "node-sass": "^6.0.1",
+-        "pixi-viewport": "^4.22.1",
+-        "pixi.js": "^6.0.0",
++        "sass": "1.43.5",
++        "pixi-viewport": "4.22.1",
++        "pixi.js": "6.0.1",
+         "react": "^17.0.0",
+         "react-countdown-circle-timer": "^2.5.3",
+         "react-dom": "^17.0.0",
+@@ -54,8 +54,12 @@
+             "last 1 safari version"
+         ]
+     },
++    "overrides": {
++        "@types/babel__traverse": "7.14.2",
++        "@types/minimatch": "3.0.5"
++    },
+     "devDependencies": {
+         "react-app-rewired": "^2.1.8",
+-        "vextpack": "^0.1.5"
++        "vextpack": "0.1.5"
+     }
+ }
+diff --git a/ui/src/App.tsx b/ui/src/App.tsx
+index 7406a7f..0410c22 100644
+--- a/ui/src/App.tsx
++++ b/ui/src/App.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from "react";
++import React, { useState, useEffect } from "react";
+ 
+ /* Redux */
+ import { connect, useDispatch } from "react-redux";
+@@ -80,6 +80,7 @@ import {
+ } from "./store/inventory/Actions";
+ 
+ /* Helpers */
++import { isGameRuntime } from './Helpers';
+ import Player from "./helpers/PlayerHelper";
+ import { FireLogicType } from "./helpers/FireLogicTypeHelper";
+ import { PlaySound, Sounds } from "./helpers/SoundHelper";
+@@ -140,15 +141,10 @@ const App: React.FC<Props> = ({
+     /*
+     * Debug
+     */
+-    let debugMode: boolean = false;
+-    if (!navigator.userAgent.includes('VeniceUnleashed')) {
+-        if (window.location.ancestorOrigins === undefined || window.location.ancestorOrigins[0] !== 'webui://main') {
+-            debugMode = true;
+-            if (uiState !== "game") {
+-                dispatch(updateUiState("game"));
+-            }
+-        }
+-    }
++    const debugMode = !isGameRuntime();
++    useEffect(() => {
++        if (debugMode && uiState !== 'game') dispatch(updateUiState('game'));
++    }, [debugMode, uiState, dispatch]);
+ 
+ 
+     /*
+@@ -202,6 +198,7 @@ const App: React.FC<Props> = ({
+     window.OnUpdateLevelName = (levelName: string) => {
+         dispatch(updateLevelName(levelName));
+     }
++    window.OnLevelFinalized = window.OnUpdateLevelName;
+ 
+     /*
+     * Player
+@@ -956,5 +953,6 @@ declare global {
+         VoipEmitterEmitting: (playerName: string, isSpeaking: boolean, isParty: boolean) => void;
+         VoipPlayerMuted: (playerName: string, isMuted: boolean) => void;
+         OnUpdateLevelName: (levelName: string) => void;
++        OnLevelFinalized: (levelName: string) => void;
+     }
+ }
+diff --git a/ui/src/Helpers.tsx b/ui/src/Helpers.tsx
+index fa2e75f..a3b3af3 100644
+--- a/ui/src/Helpers.tsx
++++ b/ui/src/Helpers.tsx
+@@ -1,8 +1,10 @@
++export function isGameRuntime(): boolean {
++    return typeof WebUI !== 'undefined' && typeof WebUI.Call === 'function';
++}
++
+ export function sendToLua(event: string, value?: any) {
+-    if (!navigator.userAgent.includes('VeniceUnleashed')) {
+-        if (window.location.ancestorOrigins === undefined || window.location.ancestorOrigins[0] !== 'webui://main') {
+-            return;
+-        }
++    if (!isGameRuntime()) {
++        return;
+     }
+ 
+     if (value !== null) {
+@@ -11,3 +13,10 @@ export function sendToLua(event: string, value?: any) {
+         WebUI.Call('DispatchEventLocal', event);
+     }
+ }
++
++export function gameAssetUrl(path: string): string {
++    if (typeof WebUI !== 'undefined' && typeof WebUI.GameAssetUrl === 'function') {
++        return WebUI.GameAssetUrl(path);
++    }
++    return 'fb://' + path;
++}
+diff --git a/ui/src/components/DeployScreen.tsx b/ui/src/components/DeployScreen.tsx
+index 0162160..2e6065d 100644
+--- a/ui/src/components/DeployScreen.tsx
++++ b/ui/src/components/DeployScreen.tsx
+@@ -3,7 +3,7 @@ import { connect } from "react-redux";
+ import { RootState } from "../store/RootReducer";
+ import { UPDATE_DEPLOY_APPEARANCE, UPDATE_DEPLOY_SCREEN, UPDATE_DEPLOY_TEAM, UPDATE_DEPLOY_TEAM_TYPE } from "../store/game/ActionTypes";
+ 
+-import { sendToLua } from "../Helpers";
++import { sendToLua, isGameRuntime } from "../Helpers";
+ import Player, { rgbaToRgb } from "../helpers/PlayerHelper";
+ import BrSelect from "./helpers/BrSelect";
+ 
+@@ -144,11 +144,7 @@ const DeployScreen: React.FC<Props> = ({
+     }
+ 
+     const handleFocus = () => {
+-        if (!navigator.userAgent.includes('VeniceUnleashed')) {
+-            if (window.location.ancestorOrigins === undefined || window.location.ancestorOrigins[0] !== 'webui://main') {
+-                return;
+-            }
+-        }
++        if (!isGameRuntime()) return;
+ 
+         WebUI.Call('EnableKeyboard');
+     }
+diff --git a/ui/src/components/Inventory.tsx b/ui/src/components/Inventory.tsx
+index 69cd2f2..3a7fe9a 100644
+--- a/ui/src/components/Inventory.tsx
++++ b/ui/src/components/Inventory.tsx
+@@ -15,7 +15,7 @@ import { Droppable } from './dnd/Droppable';
+ 
+ import InventoryTooltip from "./tooltip/InventoryTooltip";
+ 
+-import { sendToLua } from "../Helpers";
++import { sendToLua, gameAssetUrl } from "../Helpers";
+ import { updateProgress } from "../store/inventory/Actions";
+ 
+ import "./Inventory.scss";
+@@ -199,7 +199,7 @@ const Inventory: React.FC<Props> = ({
+                             {slot.UIIcon.startsWith("__") ?
+                                 <img draggable="false" src={"/img/" + slot.UIIcon + ".png"} alt="" />
+                             :
+-                                <img draggable="false" src={"fb://" + slot.UIIcon} alt="" />
++                                <img draggable="false" src={gameAssetUrl(slot.UIIcon)} alt="" />
+                             }
+                         </>
+                     }
+@@ -220,13 +220,13 @@ const Inventory: React.FC<Props> = ({
+                     {slot.Tier !== undefined &&
+                         <span className="tier">
+                             {slot.Tier === 1 &&
+-                                <img draggable="false" src="fb://UI/Art/Persistence/Ranks/Rank001" alt="" />
++                                <img draggable="false" src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank001')} alt="" />
+                             }
+                             {slot.Tier === 2 &&
+-                                <img draggable="false" src="fb://UI/Art/Persistence/Ranks/Rank002" alt="" />
++                                <img draggable="false" src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank002')} alt="" />
+                             }
+                             {slot.Tier === 3 &&
+-                                <img draggable="false" src="fb://UI/Art/Persistence/Ranks/Rank003" alt="" />
++                                <img draggable="false" src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank003')} alt="" />
+                             }
+                         </span>
+                     }
+diff --git a/ui/src/components/LoadingScreen.tsx b/ui/src/components/LoadingScreen.tsx
+index a8f7b22..803c20e 100644
+--- a/ui/src/components/LoadingScreen.tsx
++++ b/ui/src/components/LoadingScreen.tsx
+@@ -13,7 +13,6 @@ interface StateFromReducer {
+ 
+ type Props = StateFromReducer;
+ 
+-const host = "https://cdn.jsdelivr.net/gh/BF3BR/VU-BattleRoyale-Loading-Images@main/";
+ const list = ["01", "02", "03", "04"];
+ 
+ const LoadingScreen: React.FC<Props> = ({ levelName }) => {
+@@ -25,15 +24,6 @@ const LoadingScreen: React.FC<Props> = ({ levelName }) => {
+         }
+     }
+ 
+-    const getShortName = () => {
+-        if (levelName === "") {
+-            return "XP5_003";
+-        }
+-
+-        const words = levelName.split("/");
+-        return words[words.length - 1];
+-    }
+-
+     return (
+         <div id="LoadingScreen">
+             <div className="bgWrapper">
+@@ -44,10 +34,10 @@ const LoadingScreen: React.FC<Props> = ({ levelName }) => {
+                     autoplay={true}
+                     defaultIndex={(Math.floor(Math.random() * 3))}
+                 >
+-                    {list.sort(() => Math.random() - 0.5).map((pic: string, index: number) => (
+-                        <div className="slideItem" key={index}>
++                    {list.sort(() => Math.random() - 0.5).map((pic: string) => (
++                        <div className="slideItem" key={pic}>
+                             <img 
+-                                src={host + getShortName() + "/" + pic + ".jpg"} 
++                                src="img/default.jpg" 
+                                 alt="" 
+                                 onError={(e: any) => {e.target.onerror = null; e.target.src = "img/default.jpg"}} 
+                                 onLoad={(e: any) => {e.target.style = {opacity: 1}}} 
+diff --git a/ui/src/components/LootOverlay.tsx b/ui/src/components/LootOverlay.tsx
+index d87fadf..c92746e 100644
+--- a/ui/src/components/LootOverlay.tsx
++++ b/ui/src/components/LootOverlay.tsx
+@@ -2,6 +2,7 @@ import React from 'react';
+ import { connect } from 'react-redux';
+ import { getItemType } from '../helpers/InventoryHelper';
+ import { RootState } from '../store/RootReducer';
++import { gameAssetUrl } from '../Helpers';
+ 
+ import "./LootOverlay.scss";
+ 
+@@ -22,7 +23,7 @@ const LootOverlay: React.FC<Props> = ({ loot }) => {
+                                 {loot.UIIcon.startsWith("__") ?
+                                     <img src={"/img/" + loot.UIIcon + ".png"} alt="" />
+                                 :
+-                                    <img src={"fb://" + loot.UIIcon} alt="" />
++                                    <img src={gameAssetUrl(loot.UIIcon)} alt="" />
+                                 }
+                             </div>
+                         }
+@@ -49,13 +50,13 @@ const LootOverlay: React.FC<Props> = ({ loot }) => {
+                             {loot.Tier !== undefined &&
+                                 <span className="tier">
+                                     {loot.Tier === 1 &&
+-                                        <img src="fb://UI/Art/Persistence/Ranks/Rank001" alt="" />
++                                        <img src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank001')} alt="" />
+                                     }
+                                     {loot.Tier === 2 &&
+-                                        <img src="fb://UI/Art/Persistence/Ranks/Rank002" alt="" />
++                                        <img src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank002')} alt="" />
+                                     }
+                                     {loot.Tier === 3 &&
+-                                        <img src="fb://UI/Art/Persistence/Ranks/Rank003" alt="" />
++                                        <img src={gameAssetUrl('UI/Art/Persistence/Ranks/Rank003')} alt="" />
+                                     }
+                                 </span>
+                             }
+diff --git a/ui/src/components/MenuScreen.scss b/ui/src/components/MenuScreen.scss
+index e49f8d5..1a6553f 100644
+--- a/ui/src/components/MenuScreen.scss
++++ b/ui/src/components/MenuScreen.scss
+@@ -248,4 +248,32 @@
+             bottom: 3vw;
+         }*/
+     }
++
++    .MenuSidebar {
++        position: absolute;
++        right: 3vw;
++        bottom: 3vw;
++        width: 20vw;
++        display: grid;
++        gap: .2vw;
++
++        .card {
++            position: static;
++            width: 100%;
++            .card-content { min-height: 0; }
++        }
++        .CreditsBox .card-content ul {
++            display: grid;
++            grid-template-columns: repeat(2, minmax(0, 1fr));
++        }
++        .creditsDetails {
++            padding: 0;
++            border: 0;
++            background: transparent;
++            color: inherit;
++            font: inherit;
++            text-transform: inherit;
++            cursor: pointer;
++        }
++    }
+ }
+diff --git a/ui/src/components/MenuScreen.test.tsx b/ui/src/components/MenuScreen.test.tsx
+new file mode 100644
+index 0000000..98e469c
+--- /dev/null
++++ b/ui/src/components/MenuScreen.test.tsx
+@@ -0,0 +1,51 @@
++import React from "react";
++import { act, fireEvent, render, screen, cleanup } from "@testing-library/react";
++import MenuScreen from "./MenuScreen";
++import { sendToLua } from "../Helpers";
++
++jest.mock("react-redux", () => ({ connect: () => (component: any) => component }));
++jest.mock("../Helpers", () => ({ sendToLua: jest.fn() }));
++jest.mock("../helpers/SoundHelper", () => ({ PlaySound: jest.fn(), Sounds: {} }));
++
++const showMenu = () => render(React.createElement(MenuScreen as any, {
++    team: [{ name: "LAN Player", isTeamLeader: true, color: "rgba(255,0,0,1)" }],
++    localPlayerName: "LAN Player",
++}));
++afterEach(() => { cleanup(); jest.clearAllMocks(); });
++
++test("five original menu actions route team and inventory to Lua", () => {
++    const { container } = showMenu();
++    expect(Array.from(container.querySelectorAll(".buttonsHolder button")).map(b => b.textContent))
++        .toEqual(["Resume", "Team / Squad", "Inventory", "Options", "Quit"]);
++    fireEvent.click(screen.getByRole("button", { name: "Team / Squad" }));
++    expect(sendToLua).toHaveBeenLastCalledWith("WebUI:TriggerMenuFunction", "team");
++    fireEvent.click(screen.getByRole("button", { name: "Inventory" }));
++    expect(sendToLua).toHaveBeenLastCalledWith("WebUI:TriggerMenuFunction", "inventory");
++    expect(container.querySelector(".MenuSidebar .CreditsBox")).not.toBeNull();
++});
++
++test("team details and unavailable notices consume keyboard confirmation", () => {
++    showMenu();
++    act(() => window.OnMenuTeamDetails());
++    expect(screen.getByText("LAN Player [LEADER]")).not.toBeNull();
++    act(() => window.OnMenuEnter());
++    expect(screen.queryByText("LAN Player [LEADER]")).toBeNull();
++    expect(sendToLua).not.toHaveBeenCalled();
++    act(() => window.OnMenuUnavailable("Deploy before opening inventory."));
++    expect(screen.getByText("Deploy before opening inventory.")).not.toBeNull();
++    act(() => window.OnMenuEsc());
++    expect(screen.queryByText("Deploy before opening inventory.")).toBeNull();
++    expect(sendToLua).not.toHaveBeenCalled();
++});
++
++test("quit requires confirmation and cancellation does not send quit", () => {
++    showMenu();
++    fireEvent.click(screen.getByRole("button", { name: "Quit" }));
++    expect(sendToLua).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
++    expect(sendToLua).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "Quit" }));
++    fireEvent.click(screen.getByRole("button", { name: "OK" }));
++    expect(sendToLua).toHaveBeenCalledTimes(1);
++    expect(sendToLua).toHaveBeenCalledWith("WebUI:TriggerMenuFunction", "quit");
++});
+diff --git a/ui/src/components/MenuScreen.tsx b/ui/src/components/MenuScreen.tsx
+index 14127e7..a147e6f 100644
+--- a/ui/src/components/MenuScreen.tsx
++++ b/ui/src/components/MenuScreen.tsx
+@@ -20,31 +20,33 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+     const [currentModalFocus, setCurrentModalFocus] = useState(0);
+     const [showQuitModal, setShowQuitModal] = useState(false);
+     const [showCreditsModal, setShowCreditModal] = useState(false);
++    const [showTeamDetails, setShowTeamDetails] = useState(false);
++    const [menuNotice, setMenuNotice] = useState("");
++    const hasModal = showQuitModal || showCreditsModal || showTeamDetails || !!menuNotice;
+ 
+     const buttons = [
+         {
+             label: "Resume",
+             onClick: () => sendToLua("WebUI:TriggerMenuFunction", "resume"),
+         },
+-        /*{
++        {
+             label: "Team / Squad",
+             onClick: () => sendToLua("WebUI:TriggerMenuFunction", "team"),
+         },
+         {
+             label: "Inventory",
+             onClick: () => sendToLua("WebUI:TriggerMenuFunction", "inventory"),
+-        },*/
++        },
+         {
+             label: "Options",
+             onClick: () => sendToLua("WebUI:TriggerMenuFunction", "options"),
+         },
+-        {
+-            label: "Credits",
+-            onClick: () => setShowCreditModal(true),
+-        },
+         {
+             label: "Quit",
+-            onClick: () => setShowQuitModal(true),
++            onClick: () => {
++                setCurrentModalFocus(0);
++                setShowQuitModal(true);
++            },
+         },
+     ];
+ 
+@@ -73,14 +75,25 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+         }));
+     }
+ 
++    window.OnMenuTeamDetails = () => {
++        setShowTeamDetails(true);
++        setMenuNotice("");
++        setCurrentModalFocus(0);
++    };
++    window.OnMenuUnavailable = (message: string) => {
++        setMenuNotice(message);
++        setShowTeamDetails(false);
++        setCurrentModalFocus(0);
++    };
++
+     window.OnMenuArrowDown = () => {
+-        if (!showQuitModal) {
++        if (!hasModal) {
+             setCurrentFocus(currentFocus === buttons.length - 1 ? 0 : currentFocus + 1);
+         }
+     }
+ 
+     window.OnMenuArrowUp = () => {
+-        if (!showQuitModal) {
++        if (!hasModal) {
+             setCurrentFocus(currentFocus === 0 ? buttons.length - 1 : currentFocus - 1);
+         }
+     }
+@@ -100,6 +113,12 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+     window.OnMenuEnter = () => {
+         PlaySound(Sounds.Click);
+ 
++        if (showTeamDetails || menuNotice) {
++            setShowTeamDetails(false);
++            setMenuNotice("");
++            return;
++        }
++
+         if (showQuitModal) {  
+             quitModalButtons[currentModalFocus].handler();
+             return;
+@@ -114,6 +133,11 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+     }
+ 
+     window.OnMenuEsc = () => {
++        if (showTeamDetails || menuNotice) {
++            setShowTeamDetails(false);
++            setMenuNotice("");
++            return;
++        }
+         if (showQuitModal) {
+             setShowQuitModal(false);
+             setCurrentModalFocus(0);
+@@ -148,6 +172,7 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+                             }}
+                             className={"btn" + (currentFocus === key ? " active" : "")}
+                             onMouseEnter={() => {
++                                setCurrentFocus(key);
+                                 PlaySound(Sounds.Navigate);
+                             }}
+                         >
+@@ -238,9 +263,29 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+                         </div>
+                     </div>
+                 }
+-                dismiss={() => setShowQuitModal(false)}
++                dismiss={() => setShowCreditModal(false)}
+             />
+ 
++            <Modal
++                show={showTeamDetails}
++                title="Team / Squad"
++                highlightedButtonIndex={0}
++                buttons={[{ text: "OK", handler: () => setShowTeamDetails(false) }]}
++                dismiss={() => setShowTeamDetails(false)}
++                text={team.length ? <ul>{team.map(player =>
++                    <li key={player.name}>{player.name}{player.isTeamLeader ? " [LEADER]" : ""}</li>
++                )}</ul> : <p>You are not in a team.</p>}
++            />
++            <Modal
++                show={!!menuNotice}
++                title="Battle Royale"
++                highlightedButtonIndex={0}
++                buttons={[{ text: "OK", handler: () => setMenuNotice("") }]}
++                dismiss={() => setMenuNotice("")}
++                text={<p>{menuNotice}</p>}
++            />
++
++            <div className="MenuSidebar">
+             <div className="card CommunityBox">
+                 <div className="card-header">
+                     <h1>Community</h1>
+@@ -252,9 +297,12 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+                     </ul>
+                 </div>
+             </div>
+-            {/*<div className="card CreditsBox">
++            <div className="card CreditsBox">
+                 <div className="card-header">
+-                    <h1>Developers</h1>
++                    <h1><button className="creditsDetails" onClick={() => {
++                        setCurrentModalFocus(0);
++                        setShowCreditModal(true);
++                    }}>Credits</button></h1>
+                 </div>
+                 <div className="card-content">
+                     <ul>
+@@ -268,7 +316,7 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+                     </ul>
+                 </div>
+             </div>
+-            <div className="card AssociatesBox">
++            {/*<div className="card AssociatesBox">
+                 <div className="card-header">
+                     <h1>Associates</h1>
+                 </div>
+@@ -286,6 +334,7 @@ const MenuScreen: React.FC<Props> = ({ team, localPlayerName }) => {
+                     </ul>
+                 </div>
+             </div>*/}
++            </div>
+         </div>
+     );
+ };
+@@ -311,5 +360,7 @@ declare global {
+         OnMenuEsc: () => void;
+         OnMenuArrowRight: () => void;
+         OnMenuArrowLeft: () => void;
++        OnMenuTeamDetails: () => void;
++        OnMenuUnavailable: (message: string) => void;
+     }
+ }
+diff --git a/ui/src/components/chat/Chat.tsx b/ui/src/components/chat/Chat.tsx
+index d5dddc9..3c287e5 100644
+--- a/ui/src/components/chat/Chat.tsx
++++ b/ui/src/components/chat/Chat.tsx
+@@ -7,7 +7,7 @@ import { MessageTarget, MessageTargetString } from "../../helpers/chat/MessageTa
+ import Message from "../../helpers/chat/Message";
+ import ChatState from "../../helpers/chat/ChatState";
+ 
+-import { sendToLua } from "../../Helpers";
++import { sendToLua, isGameRuntime } from "../../Helpers";
+ import { RootState } from "../../store/RootReducer";
+ import { connect } from "react-redux";
+ 
+@@ -122,7 +122,7 @@ const Chat: React.FC<Props> = ({ uiState, deployScreen }) => {
+ 
+     /* Window */
+     window.OnFocus = (p_Target: MessageTarget) => {
+-        if (navigator.userAgent.includes('VeniceUnleashed')) {
++        if (isGameRuntime()) {
+             WebUI.Call('BringToFront');
+             WebUI.Call('EnableKeyboard');
+             WebUI.Call('EnableMouse');
+diff --git a/ui/src/components/map/MapPixi.tsx b/ui/src/components/map/MapPixi.tsx
+index d78ee71..b136f18 100644
+--- a/ui/src/components/map/MapPixi.tsx
++++ b/ui/src/components/map/MapPixi.tsx
+@@ -31,30 +31,10 @@ const stageOptions = {
+ 
+ const widthAndHeight = 1024;
+ 
+-// Based on map config
+-let textureWidthHeight: number = 1024;
+-let worldWidthHeight: number = 2500;
+-
+-let topLeftPos = {
+-    x: 0,
+-    z: 0,
+-};
+-
+-var landscapeTexture: any = null;
+-
+-window.OnLevelFinalized = (levelName?: string) => {
+-    console.log("window.OnLevelFinalized");
+-    console.log(levelName);
+-    switch (levelName) {
+-        case "Levels/XP5_003/XP5_003":
+-        default:
+-            landscapeTexture = PIXI.Texture.from(XP5_003);
+-            textureWidthHeight = MapsConfig["XP5_003"].textureWidthHeight;
+-            worldWidthHeight = MapsConfig["XP5_003"].worldWidthHeight;
+-            topLeftPos = MapsConfig["XP5_003"].topLeftPos;
+-            break;
+-    }
+-}
++// XP5_003 is this Royale build's only map. Start with its matching image and
++// coordinates even when the HUD mounts before the level-finalized callback.
++const { textureWidthHeight, worldWidthHeight, topLeftPos } = MapsConfig["XP5_003"];
++const landscapeTexture = PIXI.Texture.from(XP5_003);
+ 
+ const PixiViewportComponent = PixiComponent("Viewport", {
+     create(props: any) {
+@@ -206,16 +186,12 @@ const MapPixi: React.FC<Props> = ({ open }) => {
+                 worldWidth={textureWidthHeight}
+                 worldHeight={textureWidthHeight}
+             >
+-                {landscapeTexture !== null &&
+-                    <Sprite
+-                        texture={landscapeTexture}
+-                        anchor={0}
+-                        scale={1}
+-                        width={textureWidthHeight}
+-                        height={textureWidthHeight}
+-                        angle={0}
+-                    />
+-                }
++                <Sprite
++                    texture={landscapeTexture}
++                    anchor={0}
++                    width={textureWidthHeight}
++                    height={textureWidthHeight}
++                />
+ 
+                 <GridElement 
+                     width={widthAndHeight}
+@@ -271,6 +247,5 @@ export default connect(mapStateToProps, mapDispatchToProps)(MapPixi);
+ declare global {
+     interface Window {
+         OnMapZoomChange: () => void;
+-        OnLevelFinalized: (levelName?: any) => void;
+     }
+ }
+diff --git a/ui/src/components/map/MiniMap.tsx b/ui/src/components/map/MiniMap.tsx
+index 0c40007..d97ae18 100644
+--- a/ui/src/components/map/MiniMap.tsx
++++ b/ui/src/components/map/MiniMap.tsx
+@@ -25,10 +25,10 @@ const MiniMap: React.FC<Props> = ({
+ }) => {
+     return (
+         <>
+-            <div id="miniMap" className={(showMinimap ? "showMinimap" : "hideMinimap") + " " +  (open ? "open" : "")}>
++            <div id="miniMap" className={`${showMinimap || open ? "showMinimap" : "hideMinimap"}${open ? " open" : ""}`}>
+                 <div 
+                     id="pixiRotator"
+-                    style={{transform: `rotate(-${minimapRotation ? playerYaw : 0}deg` }}
++                    style={{transform: `rotate(${minimapRotation ? -(playerYaw ?? 0) : 0}deg)` }}
+                 >
+                     <MapPixi />
+                 </div>
